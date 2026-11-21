@@ -40,5 +40,10 @@ else
     echo "skip ffprobe comparison (set QUILLREEL_SAMPLES to a directory of Bink files)"
 fi
 
+sample_arg=""
+[[ -n "${QUILLREEL_SAMPLES:-}" ]] && (( ${#samples[@]} )) && sample_arg=$QUILLREEL_SAMPLES
+mkdir "$tmp/convert"
+python3 -I "$here/test_convert.py" "$bin" "$tmp/convert" "$sample_arg" || fails=$((fails + 1))
+
 if (( fails )); then echo "$fails test group(s) failed"; exit 1; fi
 echo "all tests passed"

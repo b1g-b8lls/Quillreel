@@ -1,38 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "inspect.h"
 
-#include <memory>
 #include <string_view>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/error.h>
-}
+#include "av_util.h"
 
 namespace quillreel {
 namespace {
-
-std::string av_error_string(int err) {
-    char buf[AV_ERROR_MAX_STRING_SIZE] = {};
-    av_strerror(err, buf, sizeof buf);
-    return buf;
-}
-
-// The codec tag is stored little-endian: "KB2g" == 'K' | 'B'<<8 | '2'<<16 | 'g'<<24.
-std::string fourcc_string(uint32_t tag) {
-    std::string s;
-    for (int i = 0; i < 4; ++i) {
-        char c = static_cast<char>((tag >> (8 * i)) & 0xff);
-        s += (c >= 0x20 && c < 0x7f) ? c : '?';
-    }
-    return s;
-}
-
-struct FormatCloser {
-    void operator()(AVFormatContext* ctx) const { avformat_close_input(&ctx); }
-};
-using FormatPtr = std::unique_ptr<AVFormatContext, FormatCloser>;
 
 VideoInfo describe_video(const AVStream* st) {
     const AVCodecParameters* par = st->codecpar;
@@ -86,16 +60,16 @@ AudioTrack describe_audio(const AVStream* st) {
 
 }  // namespace
 
-std::expected<FileInfo, InspectError> inspect_file(const std::string& path) {
+std::expected<FileInfo, Error> inspect_file(const std::string& path) {
     AVFormatContext* raw = nullptr;
     int ret = avformat_open_input(&raw, path.c_str(), nullptr, nullptr);
-    if (ret < 0) return std::unexpected(InspectError{ErrorKind::Open, av_error_string(ret)});
-    FormatPtr fmt(raw);
+    if (ret < 0) return std::unexpected(Error{ErrorKind::Open, av_error_string(ret)});
+    InputPtr fmt(raw);
 
     // The Bink demuxer fills in every field we report from the file header,
     // so avformat_find_stream_info (which reads and decodes packets) is not needed.
     if (std::string_view(fmt->iformat->name) != "bink")
-        return std::unexpected(InspectError{
+        return std::unexpected(Error{
             ErrorKind::NotBink,
             std::string("not a Bink file (detected format: ") + fmt->iformat->name + ")"});
 

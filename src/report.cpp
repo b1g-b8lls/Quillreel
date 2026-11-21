@@ -98,9 +98,10 @@ void print_text(std::ostream& out, const FileInfo& f) {
         out << "  Video:         none\n";
     }
     out << "  Audio tracks:  " << f.audio.size() << "\n";
-    for (const AudioTrack& a : f.audio) {
-        out << std::format("    [{}] id {}  {}  {} Hz  {} ch{}\n", a.stream_index, a.track_id, a.codec,
-                           a.sample_rate, a.channels, a.decodable ? "" : "  (no decoder)");
+    for (size_t i = 0; i < f.audio.size(); ++i) {
+        const AudioTrack& a = f.audio[i];
+        out << std::format("    #{}  {}  {} Hz  {} ch  (stream {}, id {}){}\n", i, a.codec, a.sample_rate,
+                           a.channels, a.stream_index, a.track_id, a.decodable ? "" : "  no decoder");
     }
 }
 

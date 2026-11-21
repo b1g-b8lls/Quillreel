@@ -34,7 +34,7 @@ No packets are read, so a 400 MB file takes about 20 ms.
 | decoder | `avcodec_find_decoder`. `null` means this FFmpeg build cannot decode the video |
 | duration | frame_count × fps⁻¹ (`fmt->duration` is unset without `find_stream_info`) |
 | bit_rate | file_size × 8 / duration |
-| audio[] | one entry per audio stream: codec, sample rate, channel count, demuxer track id |
+| audio[] | one entry per audio stream: codec, sample rate, channel count, stream index, demuxer track id. The text output numbers tracks `#0`, `#1`, ..., the same numbers `convert --audio-track` takes |
 
 ## Verified
 

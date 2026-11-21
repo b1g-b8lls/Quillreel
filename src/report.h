@@ -13,7 +13,7 @@ namespace quillreel {
 
 struct InspectResult {
     std::string path;
-    std::expected<FileInfo, InspectError> result;
+    std::expected<FileInfo, Error> result;
 };
 
 void print_text(std::ostream& out, const FileInfo& info);

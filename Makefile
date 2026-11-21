@@ -1,5 +1,5 @@
 CXX      ?= g++
-PKGS      = libavformat libavcodec libavutil
+PKGS      = libavformat libavcodec libavfilter libavutil
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=c++23 -Wall -Wextra -Wpedantic $(shell pkg-config --cflags $(PKGS))
 LDLIBS   += $(shell pkg-config --libs $(PKGS))

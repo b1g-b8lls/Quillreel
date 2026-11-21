@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "errors.h"
+
 namespace quillreel {
 
 struct Rational {
@@ -45,16 +47,7 @@ struct FileInfo {
     std::vector<AudioTrack> audio;
 };
 
-enum class ErrorKind {
-    Open = 2,     // file missing, unreadable, or not recognised by FFmpeg
-    NotBink = 3,  // readable media file, but not a Bink container
-};
-
-struct InspectError {
-    ErrorKind kind;
-    std::string message;
-};
-
-std::expected<FileInfo, InspectError> inspect_file(const std::string& path);
+// Errors: ErrorKind::Open or ErrorKind::NotBink.
+std::expected<FileInfo, Error> inspect_file(const std::string& path);
 
 }  // namespace quillreel
