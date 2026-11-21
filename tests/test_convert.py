@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 
 BIN, WORK = sys.argv[1], Path(sys.argv[2])
-SAMPLES = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+# One or more sample directories, separated by ":".
+SAMPLES = [Path(d) for d in sys.argv[3].split(os.pathsep) if d] if len(sys.argv) > 3 else []
 failures = 0
 
 
@@ -143,15 +144,55 @@ check("failed conversions leave no files behind", not leftovers, str(leftovers))
 
 # ---------------------------------------------------------------- real Bink samples
 if SAMPLES:
-    bink = sorted((p for p in SAMPLES.rglob("*") if p.suffix.lower() in (".bik", ".bk2")), key=os.path.getsize)
-    smallest = bink[0]
-    has_video_decoder = streams(probe(smallest), "video")[0].get("codec_name", "unknown") != "unknown"
-    if not has_video_decoder:
-        r = check_exit(f"{smallest.name}: Bink 2 video is refused", 4, "convert", smallest, WORK / "b.mp4")
+    bink = sorted({p for d in SAMPLES for p in d.rglob("*") if p.suffix.lower() in (".bik", ".bk2")},
+                  key=os.path.getsize)
+    info = {p: probe(p) for p in bink}
+
+    def decodable(p):
+        return streams(info[p], "video")[0].get("codec_name", "unknown") != "unknown"
+
+    undecodable = [p for p in bink if not decodable(p)]
+    if undecodable:
+        p = undecodable[0]
+        r = check_exit(f"{p.name}: Bink 2 video is refused", 4, "convert", p, WORK / "b.mp4")
         check("the refusal suggests --no-video", "--no-video" in r.stderr, r.stderr.strip())
-    out = WORK / "bink.wav"
-    check_exit(f"{smallest.name}: audio -> wav", 0, "convert", "--no-video", smallest, out)
-    check(f"{smallest.name}: wav is bit-exact with FFmpeg", audio_md5(out, 0) == audio_md5(smallest, 0))
+
+    with_audio = [p for p in bink if streams(info[p], "audio")]
+    if with_audio:
+        p = with_audio[0]
+        out = WORK / "bink.wav"
+        check_exit(f"{p.name}: audio -> wav", 0, "convert", "--no-video", p, out)
+        check(f"{p.name}: wav is bit-exact with FFmpeg", audio_md5(out, 0) == audio_md5(p, 0))
+
+    # Real Bink video: the cheapest decodable file by pixels to process.
+    def cost(p):
+        v = streams(info[p], "video")[0]
+        return int(v["duration_ts"]) * v["width"] * v["height"]
+
+    video_ok = sorted((p for p in bink if decodable(p)), key=cost)
+    if video_ok:
+        p = video_ok[0]
+        v = streams(info[p], "video")[0]
+        frames = int(v["duration_ts"])
+        out = WORK / "bink1.mp4"
+        check_exit(f"{p.name}: Bink video -> mp4", 0, "convert", p, out)
+        o = streams(probe(out, count_frames=True), "video")
+        check(f"{p.name}: mp4 keeps the frame rate {v['avg_frame_rate']}",
+              o and o[0]["avg_frame_rate"] == v["avg_frame_rate"], o and o[0]["avg_frame_rate"])
+        check(f"{p.name}: mp4 has all {frames} frames", o and int(o[0]["nb_read_frames"]) == frames,
+              o and o[0]["nb_read_frames"])
+        frames_dir = WORK / "bink1_png"
+        frames_dir.mkdir()
+        check_exit(f"{p.name}: Bink video -> png sequence", 0, "convert", p, frames_dir / "%05d.png")
+
+        def rgb_md5(*input_args):
+            return subprocess.run(["ffmpeg", "-v", "error", *input_args, "-map", "0:v", "-pix_fmt", "rgb24",
+                                   "-f", "md5", "-"], check=True, capture_output=True, text=True).stdout.strip()
+
+        check(f"{p.name}: png frames are pixel-exact with FFmpeg's decode",
+              rgb_md5("-i", str(frames_dir / "%05d.png")) == rgb_md5("-i", str(p)))
+    else:
+        print("skip Bink video tests (no sample with decodable video, e.g. Bink 1)")
 
     # Track selection needs a file whose tracks differ; compare 5 s of first and last.
     def distinct_tracks(p):

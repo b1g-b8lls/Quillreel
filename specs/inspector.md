@@ -26,7 +26,7 @@ No packets are read, so a 400 MB file takes about 20 ms.
 | Field | Source |
 |-------|--------|
 | fourcc | video stream `codec_tag`, little-endian, e.g. `KB2g` [ffprobe on user samples] |
-| generation | fourcc starting `BIK` → Bink 1, `KB2` → Bink 2 [FFmpeg bink demuxer doc/behavior; Bink 1 not yet tested with a real file] |
+| generation | fourcc starting `BIK` → Bink 1, `KB2` → Bink 2 [ffprobe on user samples: `BIKi` and `KB2g`] |
 | revision | 4th character of the fourcc |
 | width, height, frame_rate | video `codecpar`, `avg_frame_rate` |
 | frame_count | video stream `duration` rescaled to frames (the demuxer stores the header frame count there) [matches ffprobe `duration_ts`] |
@@ -39,11 +39,11 @@ No packets are read, so a 400 MB file takes about 20 ms.
 ## Verified
 
 `tests/compare_ffprobe.py` checks every field above except keyframes against
-ffprobe. 14/14 user-supplied Bink 2 (KB2g) samples match.
+ffprobe. All 23 user-supplied samples match: 14 Bink 2 (`KB2g`) and 9 Bink 1 (`BIKi`, 1280x720, 29.97 fps).
 
 ## Known gaps / open questions
 
-- **No Bink 1 test file yet.** Every local sample is Bink 2 revision `g`.
+- Only revisions `BIKi` and `KB2g` have been seen. Other revisions are untested.
 - **FFmpeg has no Bink 2 video decoder.** Bink 2 video shows `codec_name=unknown`.
   The demuxer and the Bink audio decoders still work. This blocks video for
   `play`/`convert` on .bk2 files.

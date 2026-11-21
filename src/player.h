@@ -4,6 +4,7 @@
 // Spec: specs/player.md
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -89,6 +90,7 @@ public:
     double seek_target() const;
     bool finished() const;  // input fully read and the video queue drained
     int audio_track() const;
+    int rewinds() const { return rewinds_; }  // seeks that had to restart reading (for tests)
 
 private:
     MediaSource() = default;
@@ -127,6 +129,10 @@ private:
     double video_drop_before_ = -1;
     double audio_drop_before_ = -1;
     double audio_next_pts_ = -1;  // position after the last decoded audio frame, -1 if unknown
+    double read_pts_ = -1;        // furthest position read (selected streams) since the last rewind
+    int64_t last_video_pkt_pts_ = AV_NOPTS_VALUE;
+    bool worker_eof_ = false;
+    std::atomic<int> rewinds_{0};
     int worker_track_ = -1;
     AudioSink* sink_ = nullptr;
 
@@ -135,7 +141,7 @@ private:
     std::condition_variable cv_;
     std::deque<VideoFrame> vq_;
     std::optional<Request> pending_;
-    bool seek_active_ = false;
+    bool seek_active_ = true;  // also covers start-up: the clock waits for the first output
     double seek_target_ = 0;
     bool eof_ = false;
     bool quit_ = false;

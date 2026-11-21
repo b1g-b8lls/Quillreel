@@ -252,7 +252,7 @@ private:
     Status open_video_encoder(Pipeline& p, const AVCodec* codec) {
         AVCodecContext* dec = p.dec.get();
         AVCodecContext* enc = p.enc.get();
-        AVRational fps = av_guess_frame_rate(in_.get(), p.in, nullptr);
+        AVRational fps = stream_frame_rate(in_.get(), p.in);
         if (fps.num <= 0 || fps.den <= 0) fps = {25, 1};
 
         enc->width = dec->width;

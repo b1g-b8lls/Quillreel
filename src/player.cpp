@@ -79,7 +79,7 @@ std::expected<std::unique_ptr<MediaSource>, Error> MediaSource::open(const PlayO
             s.height = src->vdec_->height;
             AVRational sar = av_guess_sample_aspect_ratio(in, video, nullptr);
             if (sar.num > 0 && sar.den > 0) s.sample_aspect = sar;
-            s.fps = av_q2d(av_guess_frame_rate(in, video, nullptr));
+            s.fps = av_q2d(stream_frame_rate(in, video));
         } else {
             std::string tag = fourcc_string(video->codecpar->codec_tag);
             s.video_note = tag.starts_with("KB2")
@@ -241,6 +241,7 @@ void MediaSource::worker() {
         int ret = av_read_frame(in_.get(), pkt.get());
         if (ret == AVERROR(EAGAIN)) continue;
         if (ret < 0) {  // end of input; a read error ends playback the same way
+            worker_eof_ = true;
             if (vdec_) decode_video(nullptr);
             if (adec_) decode_audio(nullptr);
             std::lock_guard lk(mu_);
@@ -251,35 +252,67 @@ void MediaSource::worker() {
             }
             continue;
         }
-        if (vdec_ && pkt->stream_index == vst_->index)
+        const AVStream* st = in_->streams[pkt->stream_index];
+        bool video = vdec_ && pkt->stream_index == vst_->index;
+        bool audio = !video && adec_ && pkt->stream_index == audio_streams_[worker_track_]->index;
+        if ((video || audio) && pkt->pts != AV_NOPTS_VALUE) {
+            read_pts_ = std::max(read_pts_, static_cast<double>(pkt->pts + std::max<int64_t>(pkt->duration, 0)) *
+                                                av_q2d(st->time_base));
+            if (video) last_video_pkt_pts_ = pkt->pts;
+        }
+        if (video)
             decode_video(pkt.get());
-        else if (adec_ && pkt->stream_index == audio_streams_[worker_track_]->index)
+        else if (audio)
             decode_audio(pkt.get());
         av_packet_unref(pkt.get());
     }
 }
 
 // FFmpeg's Bink demuxer can only seek back to the start of the file, and the
-// files may have a single keyframe. So: seek as close as the demuxer allows,
+// files may have a single keyframe. So a forward seek just keeps decoding from
+// where the worker is, if nothing at the target has been read yet and no
+// keyframe lies in between. Otherwise: seek as close as the demuxer allows,
 // skip video packets (undecoded) up to the last indexed keyframe before the
-// target, then decode and drop frames and samples that come before it.
+// target, then decode. Either way, frames and samples before the target are dropped.
 void MediaSource::do_seek(const Request& r) {
-    if (sink_ && r.track != worker_track_) open_audio_decoder(r.track);
-    if (vdec_) avcodec_flush_buffers(vdec_.get());
-    if (adec_) avcodec_flush_buffers(adec_.get());
-    swr_free(&swr_);
-
-    int64_t ts = std::llround(r.target * AV_TIME_BASE);
-    if (av_seek_frame(in_.get(), -1, ts, AVSEEK_FLAG_BACKWARD) < 0)
-        av_seek_frame(in_.get(), -1, 0, AVSEEK_FLAG_BACKWARD);
-
-    video_skip_until_ = AV_NOPTS_VALUE;
+    const int64_t ts = std::llround(r.target * AV_TIME_BASE);
+    int64_t keyframe = AV_NOPTS_VALUE;  // last indexed keyframe at or before the target
     if (vdec_) {
         int64_t vts = av_rescale_q(ts, AV_TIME_BASE_Q, vst_->time_base);
         int idx = av_index_search_timestamp(vst_, vts, AVSEEK_FLAG_BACKWARD);
         if (idx >= 0)
-            if (const AVIndexEntry* e = avformat_index_get_entry(vst_, idx)) video_skip_until_ = e->timestamp;
+            if (const AVIndexEntry* e = avformat_index_get_entry(vst_, idx)) keyframe = e->timestamp;
     }
+
+    const bool track_changes = sink_ && r.track != worker_track_;
+    bool keep_going = !worker_eof_ && !track_changes && read_pts_ >= 0 && r.target > read_pts_ + 0.05;
+    if (keep_going && vdec_)
+        keep_going = last_video_pkt_pts_ != AV_NOPTS_VALUE &&
+                     (keyframe == AV_NOPTS_VALUE || keyframe <= last_video_pkt_pts_);
+
+    if (keep_going) {
+        // Discard output still waiting in the decoders (all before the target);
+        // their state stays valid for the packets that follow.
+        FramePtr tmp(av_frame_alloc());
+        if (vdec_)
+            while (tmp && avcodec_receive_frame(vdec_.get(), tmp.get()) == 0) av_frame_unref(tmp.get());
+        if (adec_)
+            while (tmp && avcodec_receive_frame(adec_.get(), tmp.get()) == 0) av_frame_unref(tmp.get());
+        video_skip_until_ = AV_NOPTS_VALUE;
+    } else {
+        if (track_changes) open_audio_decoder(r.track);
+        if (vdec_) avcodec_flush_buffers(vdec_.get());
+        if (adec_) avcodec_flush_buffers(adec_.get());
+        if (av_seek_frame(in_.get(), -1, ts, AVSEEK_FLAG_BACKWARD) < 0)
+            av_seek_frame(in_.get(), -1, 0, AVSEEK_FLAG_BACKWARD);
+        video_skip_until_ = keyframe;
+        read_pts_ = -1;
+        last_video_pkt_pts_ = AV_NOPTS_VALUE;
+        worker_eof_ = false;
+        ++rewinds_;
+    }
+    swr_free(&swr_);
+
     double half_frame = setup_.fps > 0 ? 0.5 / setup_.fps : 0.02;
     video_drop_before_ = r.target > 0 ? r.target - half_frame : -1;
     audio_drop_before_ = r.target > 0 ? r.target : -1;
@@ -401,6 +434,7 @@ bool MediaSource::push_audio(const float* data, int samples, double start) {
     while (true) {
         if (quit_ || pending_) return false;
         if (sink_->buffered_seconds() < kMaxAudioBuffer) break;
+        seek_active_ = false;  // audio is full and still no picture: let the clock run
         cv_.wait_for(lk, std::chrono::milliseconds(10));
     }
     if (audio_rebase_) {
@@ -409,7 +443,8 @@ bool MediaSource::push_audio(const float* data, int samples, double start) {
     }
     sink_->write(data, samples);
     audio_end_ += static_cast<double>(samples) / sink_rate_;
-    seek_active_ = false;
+    // With video, the clock starts on the first frame (Bink audio comes first in the file).
+    if (!vdec_) seek_active_ = false;
     return true;
 }
 

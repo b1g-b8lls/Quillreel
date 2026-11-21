@@ -110,9 +110,10 @@ public:
         src_->start(sink_.get());
         loop();
         if (ui_.report)
-            std::printf("report: shown=%lld dropped=%lld first_pts=%.3f last_pts=%.3f audio_clock=%.3f track=%d\n",
+            std::printf("report: shown=%lld dropped=%lld first_pts=%.3f last_pts=%.3f audio_clock=%.3f track=%d "
+                        "rewinds=%d\n",
                         shown_, dropped_, first_pts_, last_pts_, sink_ ? src_->audio_clock() : 0.0,
-                        src_->audio_track());
+                        src_->audio_track(), src_->rewinds());
         return 0;
     }
 
@@ -180,10 +181,18 @@ private:
         if (src_->seeking()) {
             clock_.set(src_->seek_target());
         } else if (sink_ && !clock_.paused() && sink_->buffered_seconds() > 0) {
-            // The audio position moves in device-sized steps; follow it only
-            // when the wall clock has drifted noticeably.
-            double a = src_->audio_clock();
-            if (std::abs(a - clock_.now()) > 0.04) clock_.set(a);
+            // The audio position moves in device-sized steps (tens of ms), so
+            // jumping to it would skip frames. Ease the wall clock towards it
+            // with a ~250 ms time constant; jump only for large errors.
+            const Uint64 t = SDL_GetTicksNS();
+            const double dt = static_cast<double>(t - last_sync_ns_) / 1e9;
+            last_sync_ns_ = t;
+            const double c = clock_.now();
+            const double err = src_->audio_clock() - c;
+            if (std::abs(err) > 0.15)
+                clock_.set(c + err);
+            else
+                clock_.set(c + err * std::min(1.0, dt / 0.25));
         }
         return clock_.now();
     }
@@ -460,6 +469,7 @@ private:
     int volume_;
     int tex_w_ = 0, tex_h_ = 0;
     Uint64 osd_until_ = 0;
+    Uint64 last_sync_ns_ = SDL_GetTicksNS();
     std::string last_osd_text_;
     long long shown_ = 0, dropped_ = 0;
     double first_pts_ = -1, last_pts_ = -1;

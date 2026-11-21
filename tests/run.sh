@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Usage: tests/run.sh BINARY
-# Set QUILLREEL_SAMPLES to a directory of .bik/.bk2 files to also run the
-# ffprobe comparison. Sample files are never stored in the repo.
+# Set QUILLREEL_SAMPLES to one or more directories of .bik/.bk2 files
+# (separated by ":") to also test against real Bink files. Sample files are
+# never stored in the repo.
 set -u
 bin=$(realpath "$1")
 here=$(dirname "$(realpath "$0")")
@@ -30,7 +31,8 @@ expect_exit "non-Bink file exits 3"      3 "$bin" inspect "$tmp/silence.wav"
 expect_exit "highest exit code wins"     3 "$bin" inspect "$tmp/does-not-exist.bk2" "$tmp/silence.wav"
 
 if [[ -n "${QUILLREEL_SAMPLES:-}" ]]; then
-    mapfile -d '' samples < <(find "$QUILLREEL_SAMPLES" -type f \( -iname '*.bik' -o -iname '*.bk2' \) -print0 | sort -z)
+    IFS=: read -ra sample_dirs <<< "$QUILLREEL_SAMPLES"
+    mapfile -d '' samples < <(find "${sample_dirs[@]}" -type f \( -iname '*.bik' -o -iname '*.bk2' \) -print0 | sort -z)
     if (( ${#samples[@]} )); then
         python3 -I "$here/compare_ffprobe.py" "$bin" "${samples[@]}" || fails=$((fails + 1))
     else

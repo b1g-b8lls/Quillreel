@@ -17,7 +17,8 @@ import time
 from pathlib import Path
 
 BIN, WORK = sys.argv[1], Path(sys.argv[2])
-SAMPLES = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+# One or more sample directories, separated by ":".
+SAMPLES = [Path(d) for d in sys.argv[3].split(os.pathsep) if d] if len(sys.argv) > 3 else []
 ENV = {**os.environ, "SDL_VIDEODRIVER": "dummy", "SDL_AUDIODRIVER": "dummy"}
 failures = 0
 
@@ -93,6 +94,13 @@ case("shift+A goes back a track", [A, "--test-keys", "0.8:A,1.6:shift+A", clip],
 case("--loop restarts until quit", [A, "--loop", "--test-keys", "4.0:Q", clip], (3.8, 5.2), shown=(90, 110))
 case("--audio-track 1", [A, "--audio-track", 1, clip], (2.8, 4.2), track=(1, 1), audio_clock=END)
 
+# 8 s clip with a single keyframe, like the Bink samples.
+onekey = WORK / "onekey.mkv"
+ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+       "-t", 8, "-pix_fmt", "yuv420p", "-c:v", "libx264", "-g", 9999, "-c:a", "flac", onekey)
+case("forward seek keeps decoding, backward seek rewinds", [A, "--test-keys", "1.0:Right,2.0:Left", onekey],
+     (7.6, 9.0), rewinds=(1, 1), audio_clock=(7.95, 8.05), dropped=(0, 2))
+
 expect_exit("non-Bink input is refused", 3, clip)
 expect_exit("missing file", 2, WORK / "nope.bk2")
 expect_exit("audio track out of range", 1, A, "--audio-track", 2, clip)
@@ -103,7 +111,8 @@ expect_exit("two files", 1, clip, clip)
 expect_exit("unknown test key name", 5, A, "--test-keys", "0.1:Nope", clip)
 
 if SAMPLES:
-    bink = sorted((p for p in SAMPLES.rglob("*") if p.suffix.lower() in (".bik", ".bk2")), key=os.path.getsize)
+    bink = sorted({p for d in SAMPLES for p in d.rglob("*") if p.suffix.lower() in (".bik", ".bk2")},
+                  key=os.path.getsize)
 
     def streams(p):
         out = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(p)],
@@ -117,24 +126,58 @@ if SAMPLES:
         ch = int(next(s for s in streams(p) if s["codec_type"] == "audio")["channels"])
         return len(out) / (2 * ch * rate)
 
-    with_audio = [p for p in bink if any(s["codec_type"] == "audio" for s in streams(p))]
-    if with_audio:
-        p = with_audio[0]
+    info = {p: streams(p) for p in bink}
+
+    def kind(p, t):
+        return [s for s in info[p] if s["codec_type"] == t]
+
+    def decodable(p):
+        v = kind(p, "video")
+        return bool(v) and v[0].get("codec_name", "unknown") != "unknown"
+
+    def check_audio_end(label, p, extra_keys=None, elapsed=(2.7, 4.3), **expect):
         end = audio_end(p)  # seconds of decoded audio in the file
         start = max(0.0, end - 3)
-        case(f"{p.name}: Bink audio from {start:.1f} s ends exactly", ["--start", f"{start:.3f}", p],
-             (2.7, 4.3), audio_clock=(end - 0.01, end + 0.01))
-        n = sum(1 for s in streams(p) if s["codec_type"] == "audio")
-        if n > 1:
-            case(f"{p.name}: switch Bink audio tracks", ["--start", f"{start:.3f}", "--test-keys", "1.0:A", p],
-                 (2.7, 4.3), track=(1, 1), audio_clock=(end - 0.01, end + 0.01))
-        case(f"{p.name}: seek back in audio-only playback",
-             ["--start", f"{start:.3f}", "--test-keys", "1.0:Left", p], (7.6, 9.4),
-             audio_clock=(end - 0.01, end + 0.01))
-    silent = [p for p in bink if not any(s["codec_type"] == "audio" for s in streams(p))
-              and next(s for s in streams(p) if s["codec_type"] == "video").get("codec_name", "unknown") == "unknown"]
+        args = ["--start", f"{start:.3f}"] + (["--test-keys", extra_keys] if extra_keys else []) + [p]
+        case(f"{p.name}: {label}", args, elapsed, audio_clock=(end - 0.01, end + 0.01), **expect)
+
+    # Bink 2: audio-only playback.
+    audio_only = [p for p in bink if not decodable(p) and kind(p, "audio")]
+    if audio_only:
+        p = audio_only[0]
+        check_audio_end("audio-only playback from 3 s before the end ends exactly", p, shown=(0, 0))
+        check_audio_end("seek back in audio-only playback", p, "1.0:Left", (7.6, 9.4))
+    multi = [p for p in bink if len(kind(p, "audio")) > 1]
+    if multi:
+        check_audio_end("switch audio tracks", multi[0], "1.0:A", track=(1, 1))
+    silent = [p for p in bink if not decodable(p) and not kind(p, "audio")]
     if silent:
         expect_exit(f"{silent[0].name}: Bink 2 without audio has nothing to play", 4, silent[0])
+
+    # Bink 1: real video.
+    def frames(p):
+        return int(kind(p, "video")[0]["duration_ts"])
+
+    def seconds(p):
+        return float(kind(p, "video")[0]["duration"])
+
+    video_ok = sorted((p for p in bink if decodable(p)), key=lambda p: frames(p) * kind(p, "video")[0]["width"])
+    if video_ok:
+        p = video_ok[0]
+        d = seconds(p)
+        case(f"{p.name}: plays every Bink video frame in real time", [p], (d - 0.2, d + 1.2),
+             shown=(frames(p) - 2, frames(p)), dropped=(0, 2))
+        with_av = [q for q in video_ok if kind(q, "audio")]
+        if with_av:
+            q = with_av[0]
+            check_audio_end("Bink video with audio ends exactly", q, dropped=(0, 2))
+        long_enough = [q for q in video_ok if seconds(q) >= 8]
+        if long_enough:
+            q = long_enough[0]
+            case(f"{q.name}: forward seek keeps decoding, backward seek rewinds",
+                 ["--test-keys", "1.0:Right,2.0:Left,3.5:Q", q], (3.3, 4.8), rewinds=(1, 1))
+    else:
+        print("skip Bink video playback tests (no sample with decodable video, e.g. Bink 1)")
 else:
     print("skip Bink playback tests (set QUILLREEL_SAMPLES)")
 

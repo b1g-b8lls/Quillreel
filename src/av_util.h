@@ -31,6 +31,16 @@ inline std::string fourcc_string(uint32_t tag) {
     return s;
 }
 
+// The Bink demuxer sets avg_frame_rate from the header, but av_guess_frame_rate
+// relies on fields only avformat_find_stream_info fills in (which Bink files
+// skip), so prefer the demuxer's value. Returns {0, 1} if nothing is known.
+inline AVRational stream_frame_rate(AVFormatContext* ic, AVStream* st) {
+    if (st->avg_frame_rate.num > 0 && st->avg_frame_rate.den > 0) return st->avg_frame_rate;
+    AVRational guess = av_guess_frame_rate(ic, st, nullptr);
+    if (guess.num > 0 && guess.den > 0) return guess;
+    return {0, 1};
+}
+
 struct InputCloser {
     void operator()(AVFormatContext* c) const { avformat_close_input(&c); }
 };

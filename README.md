@@ -40,7 +40,7 @@ Run `quillreel --help` for every option and the player's keys.
 
 ```sh
 make test                                   # CLI, convert and headless playback tests
-QUILLREEL_SAMPLES=/path/to/videos make test # also tests against real Bink files
+QUILLREEL_SAMPLES=/videos/a:/videos/b make test  # also tests against real Bink files
 ```
 
 Playback tests run in real time with SDL's dummy drivers (no window, no sound) and

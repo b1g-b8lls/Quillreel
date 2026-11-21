@@ -22,6 +22,9 @@ One input per run. OUTPUT's extension picks the container and encoders:
 | wav / flac / m4a / ogg / opus / mp3 | audio only | none | pcm_s16le / flac / aac / libvorbis / libopus / libmp3lame | no |
 | mka | matroska | none | flac | yes |
 
+- The frame rate comes from the demuxer's `avg_frame_rate`. (`av_guess_frame_rate`
+  needs `avformat_find_stream_info`, which Bink files skip, so it fell back to
+  25 fps until the first Bink 1 sample caught it.)
 - The pixel format is the encoder's closest match to the source, keeping alpha
   where the encoder supports it. Frame size, aspect ratio and frame rate are kept.
 - Audio keeps the source sample rate and channel layout unless the encoder can't
@@ -55,15 +58,15 @@ are counted in samples.
   stereo tracks): frame count, frame rate, codecs, PSNR > 35 dB by frame
   index (actual ~47 dB), webm, png sequence, track selection, error cases.
   The mp4 output decodes identically to `ffmpeg -c:v libx264 -crf 18`.
+- Video from real Bink 1 samples: frame rate and frame count are kept, and PNG
+  frames are pixel-exact with FFmpeg's own decode.
 - Audio from real Bink 2 samples: `--no-video` WAV and `--all-audio` MKA are
   bit-exact with FFmpeg's own decode, for every track and in order. `--audio-track N`
   picks the right track (tested on a sample whose tracks differ).
 
 ## Known gaps / open questions
 
-- **Bink video has never gone through this pipeline.** FFmpeg can't decode
-  Bink 2 video, and there is no Bink 1 sample. The video path is only tested on
-  non-Bink input. First job once a `.bik` file turns up.
+- Bink 2 video can't be converted (FFmpeg has no decoder).
 - No quality options yet (CRF, bitrate, scaling, codec choice). What does RADTools offer?
 - Decoded Bink audio runs slightly longer than the video (10.960 s against 10.928 s
   on GameIntro_V3_B.bk2). FFmpeg's own decoder does the same. Should we trim to
