@@ -1,0 +1,5 @@
+build/
+# Sample media is never committed (clean-room rule 2 and sample rights).
+*.bik
+*.bk2
+*.binka
