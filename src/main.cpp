@@ -18,18 +18,19 @@ extern "C" {
 #include "convert.h"
 #include "inspect.h"
 #include "output_format.h"
+#include "play_sdl.h"
 #include "report.h"
 
 namespace {
 
-constexpr std::string_view kVersion = "0.2.0";
+constexpr std::string_view kVersion = "0.3.0";
 
 std::string usage_text() {
     return std::format(
         "Usage:\n"
         "  quillreel inspect [--json] [--verbose] FILE...\n"
         "  quillreel convert [options] INPUT OUTPUT\n"
-        "  quillreel play                 (not implemented yet)\n"
+        "  quillreel play [options] FILE\n"
         "\n"
         "inspect: print header information for Bink (.bik/.bk2) files.\n"
         "  --json             Print a JSON array, one object per file\n"
@@ -45,6 +46,18 @@ std::string usage_text() {
         "  -y, --overwrite    Replace OUTPUT if it exists\n"
         "  --verbose          Show FFmpeg warnings\n"
         "  --allow-non-bink   Accept any input FFmpeg can read (for testing)\n"
+        "\n"
+        "play: show a Bink file in a window with sound. Bink 2 video can't be decoded\n"
+        "by FFmpeg, so .bk2 files play their audio only.\n"
+        "  --audio-track N    Start with audio track N (default 0)\n"
+        "  --start SECONDS    Start at this position\n"
+        "  --volume PERCENT   Initial volume, 0-100 (default 100)\n"
+        "  --loop             Start again at the end\n"
+        "  --fullscreen       Open fullscreen\n"
+        "  --no-video / --no-audio, --verbose, --allow-non-bink: as for convert\n"
+        "  Keys: space/k pause, left/right seek 5 s (shift: 30 s), home restart,\n"
+        "        up/down volume, m mute, a/A next/previous audio track, l loop,\n"
+        "        f or double-click fullscreen, q or Esc quit\n"
         "\n"
         "Exit codes: 0 ok, 1 usage error, 2 cannot open file, 3 not a Bink file,\n"
         "4 stream or format not supported by this FFmpeg build, 5 output error.\n"
@@ -189,6 +202,80 @@ int run_convert(const std::vector<std::string>& args) {
     return 0;
 }
 
+template <class T>
+bool parse_number(const std::string& s, T& out) {
+    auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
+    return ec == std::errc() && end == s.data() + s.size();
+}
+
+int run_play(const std::vector<std::string>& args) {
+    quillreel::PlayOptions opts;
+    quillreel::UiOptions ui;
+    bool verbose = false;
+    std::vector<std::string> paths;
+    bool options_done = false;
+    for (size_t i = 0; i < args.size(); ++i) {
+        const std::string& a = args[i];
+        auto value = [&]() -> const std::string* { return i + 1 < args.size() ? &args[++i] : nullptr; };
+        if (options_done || a == "-" || !a.starts_with("-")) {
+            paths.push_back(a);
+        } else if (a == "--") {
+            options_done = true;
+        } else if (a == "--no-video") {
+            opts.video = false;
+        } else if (a == "--no-audio") {
+            opts.audio = false;
+        } else if (a == "--loop") {
+            ui.loop = true;
+        } else if (a == "--fullscreen") {
+            ui.fullscreen = true;
+        } else if (a == "--verbose") {
+            verbose = true;
+        } else if (a == "--allow-non-bink") {
+            opts.allow_non_bink = true;
+        } else if (a == "--report") {
+            ui.report = true;
+        } else if (a == "--test-keys") {  // hidden, for tests: "1.0:Right,2.5:shift+A"
+            const std::string* v = value();
+            if (!v) return usage_error("--test-keys needs a list like 1.0:Right,2.5:A");
+            std::string_view rest = *v;
+            while (!rest.empty()) {
+                std::string_view item = rest.substr(0, rest.find(','));
+                rest.remove_prefix(std::min(rest.size(), item.size() + 1));
+                size_t colon = item.find(':');
+                double at = -1;
+                if (colon == std::string_view::npos || !parse_number(std::string(item.substr(0, colon)), at) || at < 0)
+                    return usage_error("bad --test-keys entry: " + std::string(item));
+                ui.test_keys.emplace_back(at, std::string(item.substr(colon + 1)));
+            }
+        } else if (a == "--audio-track") {
+            const std::string* v = value();
+            int n = -1;
+            if (!v || !parse_number(*v, n) || n < 0) return usage_error("--audio-track needs a track number (0, 1, ...)");
+            opts.audio_track = n;
+        } else if (a == "--start") {
+            const std::string* v = value();
+            double s = -1;
+            if (!v || !parse_number(*v, s) || !(s >= 0)) return usage_error("--start needs a time in seconds, e.g. 62.5");
+            opts.start = s;
+        } else if (a == "--volume") {
+            const std::string* v = value();
+            int n = -1;
+            if (!v || !parse_number(*v, n) || n < 0 || n > 100) return usage_error("--volume needs a percentage, 0-100");
+            ui.volume = n;
+        } else {
+            return usage_error("unknown option: " + a);
+        }
+    }
+    if (paths.size() != 1) return usage_error("play needs exactly one FILE");
+    if (!opts.audio && opts.audio_track) return usage_error("--no-audio cannot be combined with --audio-track");
+    if (!opts.video && !opts.audio) return usage_error("--no-video and --no-audio leave nothing to play");
+    opts.input = paths[0];
+
+    av_log_set_level(verbose ? AV_LOG_WARNING : AV_LOG_ERROR);
+    return quillreel::play_file(opts, ui);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -208,9 +295,6 @@ int main(int argc, char** argv) {
     }
     if (cmd == "inspect") return run_inspect(args);
     if (cmd == "convert") return run_convert(args);
-    if (cmd == "play") {
-        std::cerr << "quillreel: '" << cmd << "' is not implemented yet\n";
-        return 1;
-    }
+    if (cmd == "play") return run_play(args);
     return usage_error("unknown command: " + cmd);
 }
