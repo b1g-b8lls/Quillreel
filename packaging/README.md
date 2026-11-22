@@ -14,8 +14,8 @@ packages (a few minutes); later builds take about a minute.
 
 | File | For | Notes |
 |------|-----|-------|
-| `quillreel_<v>-1~deb13_amd64.deb` | Debian 13 | uses Debian's FFmpeg 7.1, Qt 6.8, SDL3 |
-| `quillreel_<v>-1~ubuntu26.04_amd64.deb` | Ubuntu 26.04 LTS | FFmpeg 8, Qt 6.10, SDL 3.4 |
+| `quillreel_<v>-1.deb13_amd64.deb` | Debian 13 | uses Debian's FFmpeg 7.1, Qt 6.8, SDL3 |
+| `quillreel_<v>-1.ubuntu26.04_amd64.deb` | Ubuntu 26.04 LTS | FFmpeg 8, Qt 6.10, SDL 3.4 |
 | `Quillreel-<v>-x86_64.AppImage` | any desktop distro with glibc 2.41+ | bundles Qt, FFmpeg, SDL3, x264 |
 | `Quillreel-<v>-x86_64.AppImage-sources.md` | (with the AppImage) | the Debian source packages of the bundled libraries, for the GPL/LGPL source offer (docs/LEGAL.md) |
 

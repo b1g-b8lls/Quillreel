@@ -40,8 +40,8 @@ Quillreel loads the DLL directly; Wine is not needed. Details: [docs/bink2.md](d
 Ready-made packages are on the [Releases page](https://github.com/b1g-b8lls/Quillreel/releases);
 you can also build them with `make package` (see packaging/README.md).
 
-- **Debian 13**: `sudo apt install ./quillreel_<version>-1~deb13_amd64.deb`
-- **Ubuntu 26.04**: `sudo apt install ./quillreel_<version>-1~ubuntu26.04_amd64.deb`
+- **Debian 13**: `sudo apt install ./quillreel_<version>-1.deb13_amd64.deb`
+- **Ubuntu 26.04**: `sudo apt install ./quillreel_<version>-1.ubuntu26.04_amd64.deb`
 - **Other distros**: `chmod +x Quillreel-<version>-x86_64.AppImage` and run it. It
   opens the GUI; `./Quillreel-….AppImage convert …` (or `inspect`, `play`,
   `bink2`) runs the CLI.

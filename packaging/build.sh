@@ -73,7 +73,9 @@ Description: inspect, convert and play Bink video files
  Help > Bink 2 Video in the GUI). Without it, .bk2 files are inspected and
  their audio played and converted.
 CONTROL
-DEB=/out/quillreel_${DEB_VERSION}_${ARCH}.deb
+# The file name uses "." for the "~" in the version: GitHub renames "~" to "." in
+# release assets, so this keeps local and downloaded names the same.
+DEB=/out/quillreel_${DEB_VERSION//\~/.}_${ARCH}.deb
 dpkg-deb --root-owner-group --build "$PKG" "$DEB" >/dev/null
 echo "   $DEB"
 
