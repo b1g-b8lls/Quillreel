@@ -1,0 +1,13 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/icons">
+    <file alias="quillreel-16.png">icons/quillreel-16.png</file>
+    <file alias="quillreel-22.png">icons/quillreel-22.png</file>
+    <file alias="quillreel-24.png">icons/quillreel-24.png</file>
+    <file alias="quillreel-32.png">icons/quillreel-32.png</file>
+    <file alias="quillreel-48.png">icons/quillreel-48.png</file>
+    <file alias="quillreel-64.png">icons/quillreel-64.png</file>
+    <file alias="quillreel-128.png">icons/quillreel-128.png</file>
+    <file alias="quillreel-256.png">icons/quillreel-256.png</file>
+  </qresource>
+</RCC>

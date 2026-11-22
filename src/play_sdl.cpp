@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include "sync_clock.h"
+
 namespace quillreel {
 namespace {
 
@@ -58,26 +60,6 @@ private:
     SDL_AudioStream* stream_;
     std::atomic<int> channels_;
     std::atomic<int> bytes_per_second_;
-};
-
-// Wall clock that can be paused and re-anchored (to the audio position).
-class Clock {
-public:
-    double now() const { return paused_ ? pts_ : pts_ + static_cast<double>(SDL_GetTicksNS() - anchor_) / 1e9; }
-    void set(double pts) {
-        pts_ = pts;
-        anchor_ = SDL_GetTicksNS();
-    }
-    void set_paused(bool paused) {
-        set(now());
-        paused_ = paused;
-    }
-    bool paused() const { return paused_; }
-
-private:
-    double pts_ = 0;
-    Uint64 anchor_ = SDL_GetTicksNS();
-    bool paused_ = false;
 };
 
 std::string format_time(double s) {
@@ -181,18 +163,7 @@ private:
         if (src_->seeking()) {
             clock_.set(src_->seek_target());
         } else if (sink_ && !clock_.paused() && sink_->buffered_seconds() > 0) {
-            // The audio position moves in device-sized steps (tens of ms), so
-            // jumping to it would skip frames. Ease the wall clock towards it
-            // with a ~250 ms time constant; jump only for large errors.
-            const Uint64 t = SDL_GetTicksNS();
-            const double dt = static_cast<double>(t - last_sync_ns_) / 1e9;
-            last_sync_ns_ = t;
-            const double c = clock_.now();
-            const double err = src_->audio_clock() - c;
-            if (std::abs(err) > 0.15)
-                clock_.set(c + err);
-            else
-                clock_.set(c + err * std::min(1.0, dt / 0.25));
+            clock_.follow(src_->audio_clock());
         }
         return clock_.now();
     }
@@ -461,7 +432,7 @@ private:
     };
     std::vector<TestKey> test_keys_;
 
-    Clock clock_;
+    SyncClock clock_;
     bool audio_only_ = false;
     bool loop_ = false;
     bool muted_ = false;
@@ -469,7 +440,6 @@ private:
     int volume_;
     int tex_w_ = 0, tex_h_ = 0;
     Uint64 osd_until_ = 0;
-    Uint64 last_sync_ns_ = SDL_GetTicksNS();
     std::string last_osd_text_;
     long long shown_ = 0, dropped_ = 0;
     double first_pts_ = -1, last_pts_ = -1;

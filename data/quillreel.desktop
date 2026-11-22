@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Quillreel
+GenericName=Bink Video Player
+Comment=Inspect and play Bink video files (.bik, .bk2)
+Exec=quillreel-gui %F
+Icon=quillreel
+Terminal=false
+Categories=AudioVideo;Video;Player;
+MimeType=video/x-bink;

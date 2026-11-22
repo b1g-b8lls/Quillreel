@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="reel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#36c2d4"/>
+      <stop offset="1" stop-color="#11678a"/>
+    </linearGradient>
+    <linearGradient id="vane" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f39a1e"/>
+      <stop offset="1" stop-color="#ffc744"/>
+    </linearGradient>
+  </defs>
+  <!-- film strip: dark band, sprocket holes along both edges, frames -->
+  <g fill="none" stroke-linecap="butt">
+    <path id="strip" d="M 64 222 C 110 238, 150 206, 192 211 C 220 214, 236 204, 238 184" stroke="#1d2226" stroke-width="34"/>
+    <path d="M 64 222 C 110 238, 150 206, 192 211 C 220 214, 236 204, 238 184" stroke="#e8e2d0" stroke-width="26" stroke-dasharray="5 6"/>
+    <path d="M 64 222 C 110 238, 150 206, 192 211 C 220 214, 236 204, 238 184" stroke="#1d2226" stroke-width="16"/>
+    <path d="M 64 222 C 110 238, 150 206, 192 211 C 220 214, 236 204, 238 184" stroke="#5b636a" stroke-width="14" stroke-dasharray="20 3"/>
+  </g>
+  <!-- reel -->
+  <circle cx="112" cy="116" r="96" fill="#d9f6fa" fill-opacity="0.35"/>
+  <circle cx="112" cy="116" r="92" fill="url(#reel)" stroke="#0b4560" stroke-width="7"/>
+  <g fill="#0c2a38">
+    <circle cx="112" cy="62" r="24"/>
+    <circle cx="163.4" cy="99.3" r="24"/>
+    <circle cx="143.7" cy="159.7" r="24"/>
+    <circle cx="80.3" cy="159.7" r="24"/>
+    <circle cx="60.6" cy="99.3" r="24"/>
+  </g>
+  <circle cx="112" cy="116" r="12" fill="none" stroke="#0c2a38" stroke-width="6"/>
+  <!-- quill, drawn along +x from the nib tip, then rotated into place -->
+  <g transform="translate(58 222) rotate(-50)">
+    <path d="M 70 0 C 98 -42, 168 -66, 242 -46 C 232 -36, 224 -30, 214 -24 C 222 -24, 228 -24, 234 -26 C 214 -4, 192 8, 168 13 C 174 15, 180 16, 186 16 C 146 26, 102 16, 70 0 Z"
+          fill="url(#vane)" stroke="#a85d0c" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M 60 0 C 120 -4, 182 -18, 238 -44" fill="none" stroke="#b5620a" stroke-width="4" stroke-linecap="round"/>
+    <rect x="44" y="-9" width="16" height="18" rx="3" fill="#24292d"/>
+    <path d="M 0 0 L 44 -12 L 44 12 Z" fill="#f2b632" stroke="#8a560c" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M 6 0 L 30 0" stroke="#5a3a08" stroke-width="2.5"/>
+    <circle cx="31" cy="0" r="3.5" fill="#5a3a08"/>
+  </g>
+</svg>

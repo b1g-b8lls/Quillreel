@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Usage: tests/run.sh BINARY
+# Usage: tests/run.sh BINARY [GUI_BINARY]
 # Set QUILLREEL_SAMPLES to one or more directories of .bik/.bk2 files
 # (separated by ":") to also test against real Bink files. Sample files are
 # never stored in the repo.
@@ -58,6 +58,12 @@ mkdir "$tmp/play"
 python3 -I "$here/test_play.py" "$bin" "$tmp/play" "$sample_arg" || fails=$((fails + 1))
 mkdir "$tmp/bink2"
 python3 -I "$here/test_bink2.py" "$bin" "$tmp/bink2" "$sample_arg" || fails=$((fails + 1))
+if [[ -n "${2:-}" ]]; then
+    mkdir "$tmp/gui"
+    python3 -I "$here/test_gui.py" "$(realpath "$2")" "$tmp/gui" "$sample_arg" || fails=$((fails + 1))
+else
+    echo "skip GUI tests (quillreel-gui not built)"
+fi
 
 if (( fails )); then echo "$fails test group(s) failed"; exit 1; fi
 echo "all tests passed"

@@ -12,7 +12,7 @@ See [docs/CLEANROOM.md](docs/CLEANROOM.md).
 | `convert` | done: mp4/mov/mkv/webm, raw .y4m, PNG sequence, wav/flac/m4a/ogg/opus/mp3/mka |
 | `play` | done: window with sound, seeking, audio track switching, looping |
 | `bink2` | done: enables Bink 2 video once you provide RAD's decoder (see below) |
-| GUI | later, wrapping the same code |
+| GUI (`quillreel-gui`) | first milestone: file browser, info panel, built-in player (Qt 6). Convert comes next |
 
 ### Bink 2 video: not supported until you provide the decoder
 
@@ -37,7 +37,8 @@ Quillreel loads the DLL directly; Wine is not needed. Details: [docs/bink2.md](d
 
 Needs g++ with C++23, make, pkg-config, SDL3 and the FFmpeg development libraries
 (libavformat, libavcodec, libavfilter, libavutil, libswscale, libswresample).
-On Arch: `pacman -S ffmpeg sdl3`.
+The GUI also needs Qt 6 (Widgets, Multimedia, OpenGL Widgets); without it, `make`
+builds the CLI only. On Arch: `pacman -S ffmpeg sdl3 qt6-base qt6-multimedia`.
 
 ```sh
 make
@@ -48,7 +49,8 @@ make
 ./build/quillreel convert movie.bik frames/%05d.png
 ./build/quillreel play movie.bk2
 ./build/quillreel play --audio-track 2 --start 60 movie.bk2
-sudo make install            # installs only the quillreel binary (PREFIX=/usr/local)
+./build/quillreel-gui ~/Videos/bink        # the GUI, with a folder of Bink files
+sudo make install            # installs quillreel and quillreel-gui (PREFIX=/usr/local)
 ```
 
 Run `quillreel --help` for every option and the player's keys.
@@ -63,13 +65,15 @@ QUILLREEL_BINK2_DLL=/path/to/bink2w64.dll QUILLREEL_SAMPLES=... make test  # plu
 
 The tests ignore any installed `bink2w64.dll`; pass one with `QUILLREEL_BINK2_DLL`.
 
-Playback tests run in real time with SDL's dummy drivers (no window, no sound) and
-take about a minute.
+Playback tests run in real time with SDL's dummy drivers and Qt's offscreen platform
+(no window, no sound) and take about two minutes.
 
 ## Layout
 
 - `src/`: `inspect.*`, `convert.*` and `player.*` (library code a future GUI can reuse), `play_sdl.*` (SDL3 player window), `output_format.*` (extension → encoders), `report.*` (inspect output), `main.cpp` (CLI)
 - `src/bink2_dll.*`, `src/pe_image.*`, `src/win32_shim.*`: running a user-supplied `bink2w64.dll` (docs/bink2.md)
+- `src/gui/`: the Qt GUI (`main_window`, `player_widget`, `video_view`, `qt_audio_sink`), see specs/gui.md
+- `data/`: desktop entry and icon (SVG sources in `data/icons/src/`; `data/icons/render.sh` makes the PNG sizes)
 - `specs/`: behavior specs (observed) and design specs
 - `tests/`: test runner, ffprobe comparison, convert and playback tests
 - `docs/CLEANROOM.md`: project ground rules
