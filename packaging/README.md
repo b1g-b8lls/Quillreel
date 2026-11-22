@@ -73,7 +73,7 @@ test builds as pre-releases: the API skips them.
   with any characters work (this is why Windows 10 1903 is the minimum).
 - `build-windows.sh` copies every DLL the programs and Qt plugins import from
   MSYS2 (found by walking their imports) and the Qt plugins they use (Windows
-  platform, offscreen, Windows 11 style, FFmpeg multimedia backend). The
+  platform, offscreen, Windows 11 style, icon format, Schannel TLS). The
   installer's file list is generated from that, so the uninstaller removes
   exactly what was installed; upgrading first runs the old uninstaller.
 - Installs for all users under `C:\Program Files\Quillreel` (needs admin). Options:

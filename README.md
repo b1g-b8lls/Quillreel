@@ -65,8 +65,8 @@ video support; add RAD's `bink2w64.dll` yourself (see above).
 
 Needs g++ with C++23, make, pkg-config, SDL3 and the FFmpeg development libraries
 (libavformat, libavcodec, libavfilter, libavutil, libswscale, libswresample).
-The GUI also needs Qt 6 (Widgets, Multimedia, OpenGL Widgets, Network); without it, `make`
-builds the CLI only. On Arch: `pacman -S ffmpeg sdl3 qt6-base qt6-multimedia`.
+The GUI also needs Qt 6 (Widgets, OpenGL Widgets, Network); without it, `make`
+builds the CLI only. On Arch: `pacman -S ffmpeg sdl3 qt6-base`.
 
 ```sh
 make

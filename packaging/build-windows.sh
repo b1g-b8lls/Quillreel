@@ -25,11 +25,11 @@ mkdir -p "$STAGE"
 cp build/quillreel.exe build/quillreel-gui.exe "$STAGE/"
 $HOST-strip --strip-unneeded "$STAGE"/*.exe
 # Qt plugins, in the folders Qt looks for next to the executable: the Windows
-# platform (and offscreen, for headless use), the Windows 11 style, and the
-# multimedia backend (audio output; it uses the same FFmpeg DLLs), and HTTPS
-# through Windows' own TLS (Schannel) for the updater.
+# platform (and offscreen, for headless use), the Windows 11 style, the icon
+# format, and HTTPS through Windows' own TLS (Schannel) for the updater. Sound
+# goes through SDL, not Qt.
 for p in platforms/qwindows.dll platforms/qoffscreen.dll styles/qmodernwindowsstyle.dll \
-         multimedia/ffmpegmediaplugin.dll imageformats/qico.dll tls/qschannelbackend.dll; do
+         imageformats/qico.dll tls/qschannelbackend.dll; do
     install -Dm644 "$QT_PLUGINS/$p" "$STAGE/$p"
 done
 

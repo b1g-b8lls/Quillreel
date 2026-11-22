@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "player.h"
+#include "sdl_audio_sink.h"
 #include "sync_clock.h"
 
 class QComboBox;
@@ -22,7 +23,6 @@ class QToolButton;
 
 namespace quillreel::gui {
 
-class QtAudioSink;
 class SeekSlider;
 class VideoView;
 
@@ -99,7 +99,7 @@ private:
 
     // The worker inside src_ writes to sink_, so src_ is declared after it
     // (destroyed first).
-    std::unique_ptr<QtAudioSink> sink_;
+    std::unique_ptr<SdlAudioSink> sink_;
     std::unique_ptr<MediaSource> src_;
     StreamSetup setup_;
     QString path_;

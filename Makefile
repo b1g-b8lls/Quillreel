@@ -4,7 +4,7 @@ BUILD      ?= build
 PREFIX     ?= /usr/local
 
 FFMPEG_PKGS = libavformat libavcodec libavfilter libavutil libswscale libswresample
-QT_PKGS     = Qt6Widgets Qt6Multimedia Qt6OpenGLWidgets Qt6OpenGL Qt6Network
+QT_PKGS     = Qt6Widgets Qt6OpenGLWidgets Qt6OpenGL Qt6Network
 
 # The GUI is built when Qt 6 is installed; the CLI never needs it.
 HAVE_QT := $(shell $(PKG_CONFIG) --exists $(QT_PKGS) && echo yes)
@@ -66,13 +66,14 @@ $(BIN): $(CORE_OBJ) $(CLI_OBJ)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(SDL_LIBS)
 
 $(GUI_BIN): $(CORE_OBJ) $(GUI_OBJ)
-	$(CXX) $(LDFLAGS) $(GUI_LDFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(QT_LIBS)
+	$(CXX) $(LDFLAGS) $(GUI_LDFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(SDL_LIBS) $(QT_LIBS)
 
 $(BUILD)/%_res.o: data/windows/quillreel.rc data/windows/quillreel.manifest data/windows/quillreel.ico | $(BUILD)
 	$(WINDRES) -I data/windows -DQR_VERSION='\"$(VERSION)\"' -DQR_VERSION_NUM=$(subst .,$(comma),$(VERSION)),0 \
 	    -DQR_FILE='\"$*.exe\"' -DQR_DESCRIPTION='\"Quillreel$(if $(findstring gui,$*), (GUI))\"' -o $@ $<
 
-$(BUILD)/play_sdl.o: src/play_sdl.cpp $(HEADERS) | $(BUILD)
+# SDL: the CLI's window, and audio output for both programs.
+$(BUILD)/play_sdl.o $(BUILD)/sdl_audio_sink.o: $(BUILD)/%.o: src/%.cpp $(HEADERS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -c -o $@ $<
 
 $(BUILD)/%.o: src/%.cpp $(HEADERS) | $(BUILD)

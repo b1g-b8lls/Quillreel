@@ -20,7 +20,6 @@
 #include <cmath>
 #include <format>
 
-#include "qt_audio_sink.h"
 #include "video_view.h"
 
 namespace quillreel::gui {
@@ -198,8 +197,9 @@ bool PlayerWidget::open(const QString& path, const QStringList& track_labels, bo
     }
     setup_ = (*src)->setup();
     if (setup_.has_audio) {
-        sink_ = QtAudioSink::open(setup_.sample_rate, setup_.channels);
-        if (!sink_) emit message(tr("No audio output device; playing without sound"));
+        std::string why;
+        sink_ = SdlAudioSink::open(setup_.sample_rate, setup_.channels, &why);
+        if (!sink_) emit message(tr("No audio output (%1); playing without sound").arg(QString::fromStdString(why)));
     }
     if (!setup_.has_video && !sink_) {
         show_note(tr("Can't play %1:\nno audio output, and no video to show.").arg(name));
@@ -411,7 +411,7 @@ void PlayerWidget::step_track(int direction) {
 }
 
 void PlayerWidget::apply_volume() {
-    if (sink_) sink_->set_volume(muted_ ? 0.0f : static_cast<float>(volume_->value()) / 100.0f);
+    if (sink_) sink_->set_gain(muted_ ? 0.0f : static_cast<float>(volume_->value()) / 100.0f);
     update_controls(true);
 }
 

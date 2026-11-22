@@ -7,7 +7,7 @@ notes on RADTools' window yet.
 ## Build
 
 A separate program, `quillreel-gui`, built by `make` when Qt 6 (Widgets,
-Multimedia, OpenGLWidgets) is installed. The CLI never needs Qt. Both programs
+OpenGLWidgets, Network) is installed. It also uses SDL3, for sound only. The CLI never needs Qt. Both programs
 share the core code (inspect, the playback core `MediaSource`, convert, and the
 Bink 2 DLL loader). `make install` also installs `data/quillreel.desktop`.
 
@@ -145,10 +145,10 @@ eases towards it), and the same frame dropping and end-of-file rule. A 4 ms Qt
 timer drives it. At the end the player pauses on the last frame; Play starts
 again from the beginning. Loop restarts instead.
 
-- **Sound**: Qt Multimedia `QAudioSink` in pull mode, about 60 ms device buffer,
-  float output (16-bit if the device refuses float). The buffered amount counts
-  what the device was given within the last buffer length, so the clock and the
-  end-of-file check still work when the device holds the last samples.
+- **Sound**: the same SDL3 audio stream as `quillreel play` (`src/sdl_audio_sink.*`).
+  It used Qt Multimedia's `QAudioSink` until 0.7.0, which found no audio
+  device under Wine (and most likely on some Windows systems): files then played
+  silently and audio-only ones (Bink 2 without the DLL) not at all.
 - **Video**: `QOpenGLWidget`. The Y, U and V planes are uploaded as textures and
   converted in a shader. The matrix is chosen like the SDL player: BT.601 limited
   range unless the frame says BT.709 and/or full range.

@@ -14,53 +14,11 @@
 #include <string>
 #include <vector>
 
+#include "sdl_audio_sink.h"
 #include "sync_clock.h"
 
 namespace quillreel {
 namespace {
-
-class SdlAudioSink final : public AudioSink {
-public:
-    static std::unique_ptr<SdlAudioSink> open(int rate, int channels) {
-        SDL_AudioSpec spec{SDL_AUDIO_F32, channels, rate};
-        SDL_AudioStream* s = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
-        if (!s) return nullptr;
-        return std::unique_ptr<SdlAudioSink>(new SdlAudioSink(s, rate, channels));
-    }
-    ~SdlAudioSink() override { SDL_DestroyAudioStream(stream_); }
-
-    bool configure(int rate, int channels) override {
-        SDL_AudioSpec spec{SDL_AUDIO_F32, channels, rate};
-        if (!SDL_SetAudioStreamFormat(stream_, &spec, nullptr)) return false;
-        channels_ = channels;
-        bytes_per_second_ = rate * channels * static_cast<int>(sizeof(float));
-        return true;
-    }
-    void write(const float* data, int samples) override {
-        SDL_PutAudioStreamData(stream_, data, samples * channels_ * static_cast<int>(sizeof(float)));
-    }
-    void clear() override { SDL_ClearAudioStream(stream_); }
-    // When SDL resamples, it holds back a few samples until told the stream ended.
-    void flush() override { SDL_FlushAudioStream(stream_); }
-    double buffered_seconds() const override {
-        int queued = SDL_GetAudioStreamQueued(stream_);
-        return queued > 0 ? static_cast<double>(queued) / bytes_per_second_ : 0;
-    }
-    void set_paused(bool paused) {
-        if (paused)
-            SDL_PauseAudioStreamDevice(stream_);
-        else
-            SDL_ResumeAudioStreamDevice(stream_);
-    }
-    void set_gain(float gain) { SDL_SetAudioStreamGain(stream_, gain); }
-
-private:
-    SdlAudioSink(SDL_AudioStream* s, int rate, int channels)
-        : stream_(s), channels_(channels), bytes_per_second_(rate * channels * static_cast<int>(sizeof(float))) {}
-    SDL_AudioStream* stream_;
-    std::atomic<int> channels_;
-    std::atomic<int> bytes_per_second_;
-};
 
 std::string format_time(double s) {
     auto t = static_cast<long long>(std::max(0.0, s));
@@ -123,8 +81,9 @@ private:
         }
 
         if (setup_.has_audio) {
-            if (SDL_InitSubSystem(SDL_INIT_AUDIO)) sink_ = SdlAudioSink::open(setup_.sample_rate, setup_.channels);
-            if (!sink_) std::cerr << "warning: no audio output (" << SDL_GetError() << "); playing without sound\n";
+            std::string why;
+            sink_ = SdlAudioSink::open(setup_.sample_rate, setup_.channels, &why);
+            if (!sink_) std::cerr << "warning: no audio output (" << why << "); playing without sound\n";
         }
         if (!setup_.has_video && !sink_) {
             std::cerr << "quillreel: no audio output and no video to show\n";
