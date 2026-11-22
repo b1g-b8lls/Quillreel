@@ -112,4 +112,12 @@ Playback tests run in real time with SDL's dummy drivers and Qt's offscreen plat
 - `tests/`: test runner, ffprobe comparison, convert and playback tests
 - `docs/LEGAL.md`: legal notes and repository rules
 
+## Thanks
+
+[AudiFormer](https://github.com/AudiFormer) tested the Windows preview and
+suggested several improvements: readable controls in dark mode, a friendlier
+file details panel, more conversion options (codec choice, lossless output,
+trimming) and opening conversions in HandBrake. Their report also led to the fix
+for sound in the GUI on Windows.
+
 License: GPL-3.0-or-later.
