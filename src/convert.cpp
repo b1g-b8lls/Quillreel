@@ -360,6 +360,9 @@ private:
             {"libsvtav1", 1, 63, 32, {24, 38, 45}, "preset", {"8", "10", "5"}},
         };
         const std::string_view name = codec->name;
+        // One thread per core. libavcodec's default is 1, which libx264 and
+        // libsvtav1 ignore but libvpx obeys (VP9 WebM was ~10x slower).
+        enc->thread_count = 0;
         for (const Tuning& t : kTunings) {
             if (name != t.name) continue;
             int crf = t.def;
