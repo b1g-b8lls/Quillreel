@@ -50,7 +50,8 @@ def check_exit(name, want, *args, env=None):
 
 # ------------------------------------------------------------ without a DLL
 r = check_exit("bink2 status without a DLL", 0, "bink2", "status")
-check("status says how to install one", "bink2 install" in r.stdout, r.stdout)
+check("status says Bink 2 video is not enabled and how to enable it",
+      "not enabled" in r.stdout and "bink2 install" in r.stdout, r.stdout)
 check_exit("bink2 without a subcommand", 1, "bink2")
 check_exit("unknown bink2 subcommand", 1, "bink2", "frobnicate")
 check_exit("bink2 install needs a path", 1, "bink2", "install")
@@ -79,7 +80,8 @@ def video(p):
 if bk2:
     p = bk2[0]
     r = check_exit(f"{p.name}: inspect without a DLL", 0, "inspect", p)
-    check("inspect points to `quillreel bink2`", "needs bink2w64.dll" in r.stdout, r.stdout)
+    check("inspect says Bink 2 video is not enabled", "not enabled" in r.stdout and "bink2 install" in r.stdout,
+          r.stdout)
 
 # ------------------------------------------------------------ with a DLL
 if not DLL:

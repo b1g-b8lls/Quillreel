@@ -1,10 +1,11 @@
 # Bink 2 video: RAD's decoder, supplied by the user
 
-FFmpeg has no Bink 2 video decoder, and Quillreel does not contain one either.
-Instead, Quillreel runs **RAD's own decoder, `bink2w64.dll`**, which the user
-copies from a game that ships it. Quillreel never includes, downloads or
-installs that file. Without it, .bk2 files still inspect fully and play and
-convert their audio. This part of the project is outside the clean room (see
+**Bink 2 video is not supported out of the box.** FFmpeg has no Bink 2 video
+decoder, and Quillreel does not contain one either. Until the user provides
+**RAD's own decoder, `bink2w64.dll`**, from a game that ships it, .bk2 files can
+only be inspected and have their audio played and converted. Once it is provided
+(`quillreel bink2 install`), Quillreel runs it to play and convert .bk2 video.
+Quillreel never includes, downloads or installs that file itself. This part of the project is outside the clean room (see
 CLEANROOM.md).
 
 ```sh

@@ -77,7 +77,7 @@ std::expected<std::unique_ptr<MediaSource>, Error> MediaSource::open(const PlayO
         if (tag.starts_with("KB2")) {
             // Bink 2 video only through RAD's own decoder, supplied by the user.
             if (!bink2::dll_path()) {
-                s.video_note = "Bink 2 video needs bink2w64.dll (see: quillreel bink2); playing audio only";
+                s.video_note = "Bink 2 video not enabled (quillreel bink2 install DLL); playing audio only";
             } else if (auto d = bink2::Decoder::open(opts.input)) {
                 src->b2dec_ = std::move(*d);
             } else {

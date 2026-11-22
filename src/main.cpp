@@ -34,6 +34,11 @@ std::string usage_text() {
         "  quillreel play [options] FILE\n"
         "  quillreel bink2 install DLL | status [DLL] | remove\n"
         "\n"
+        "Bink 2 video (.bk2) is not supported out of the box: Quillreel includes no\n"
+        "Bink 2 decoder. It is enabled once you provide RAD's bink2w64.dll from a game\n"
+        "that uses Bink 2 (see `bink2` below). Until then, .bk2 files can be inspected\n"
+        "and their audio played and converted, but not their video.\n"
+        "\n"
         "inspect: print header information for Bink (.bik/.bk2) files.\n"
         "  --json             Print a JSON array, one object per file\n"
         "  --verbose          Show FFmpeg warnings\n"
@@ -60,13 +65,13 @@ std::string usage_text() {
         "        up/down volume, m mute, a/A next/previous audio track, l loop,\n"
         "        f or double-click fullscreen, q or Esc quit\n"
         "\n"
-        "bink2: Bink 2 video (.bk2) is decoded by RAD's bink2w64.dll, which Quillreel\n"
-        "does not include. Without it, .bk2 files play and convert audio only.\n"
+        "bink2: enable Bink 2 video by providing RAD's decoder, bink2w64.dll.\n"
         "  install DLL        Check a bink2w64.dll (64-bit, from any game that uses\n"
-        "                     Bink 2) and copy it to {}\n"
-        "  status [DLL]       Show which DLL is used and whether it loads\n"
-        "  remove             Delete the installed copy\n"
-        "  QUILLREEL_BINK2_DLL=PATH overrides the installed copy.\n"
+        "                     Bink 2) and copy it to {}.\n"
+        "                     .bk2 video can then be played and converted.\n"
+        "  status [DLL]       Show whether Bink 2 video is enabled, and with which DLL\n"
+        "  remove             Delete the installed copy (disables Bink 2 video again)\n"
+        "  QUILLREEL_BINK2_DLL=PATH uses that DLL instead, without installing it.\n"
         "\n"
         "Exit codes: 0 ok, 1 usage error, 2 cannot open file, 3 not a Bink file,\n"
         "4 stream or format not supported by this FFmpeg build, 5 output error.\n"
@@ -299,7 +304,7 @@ int run_bink2(const std::vector<std::string>& args) {
             std::cerr << "quillreel: " << r.error().message << "\n";
             return static_cast<int>(r.error().kind);
         }
-        std::cout << "installed RAD's Bink 2 decoder; .bk2 video can now be played and converted\n";
+        std::cout << "Bink 2 video enabled: .bk2 video can now be played and converted\n";
         report(*r);
         return 0;
     }
@@ -307,7 +312,8 @@ int run_bink2(const std::vector<std::string>& args) {
         if (args.size() > 2) return usage_error("bink2 status takes at most one DLL path");
         std::optional<std::string> path = args.size() == 2 ? std::optional(args[1]) : b2::dll_path();
         if (!path) {
-            std::cout << "no Bink 2 decoder installed: .bk2 files play and convert audio only\n"
+            std::cout << "Bink 2 video: not enabled (no bink2w64.dll provided)\n"
+                      << ".bk2 files can be inspected and their audio played and converted.\n"
                       << b2::missing_message() << "\n";
             return 0;
         }
@@ -316,7 +322,7 @@ int run_bink2(const std::vector<std::string>& args) {
             std::cerr << "quillreel: " << r.error().message << "\n";
             return static_cast<int>(r.error().kind);
         }
-        std::cout << "Bink 2 decoder loads and is ready";
+        std::cout << "Bink 2 video: enabled (the DLL loads)";
         if (args.size() < 2 && std::getenv("QUILLREEL_BINK2_DLL")) std::cout << " (from QUILLREEL_BINK2_DLL)";
         std::cout << "\n";
         report(*r);
@@ -329,7 +335,9 @@ int run_bink2(const std::vector<std::string>& args) {
             std::cerr << "quillreel: " << r.error().message << "\n";
             return static_cast<int>(r.error().kind);
         }
-        std::cout << (*r ? "removed " + b2::installed_path() : std::string("no installed Bink 2 decoder to remove")) << "\n";
+        std::cout << (*r ? "removed " + b2::installed_path() + "; Bink 2 video is disabled"
+                         : std::string("no installed Bink 2 decoder to remove"))
+                  << "\n";
         return 0;
     }
     return usage_error(sub.empty() ? "bink2 needs a subcommand: install, status or remove"

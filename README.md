@@ -11,20 +11,27 @@ See [docs/CLEANROOM.md](docs/CLEANROOM.md).
 | `inspect` | done: header info, text or JSON |
 | `convert` | done: mp4/mov/mkv/webm, raw .y4m, PNG sequence, wav/flac/m4a/ogg/opus/mp3/mka |
 | `play` | done: window with sound, seeking, audio track switching, looping |
-| `bink2` | done: add RAD's Bink 2 decoder from a game (see below) |
+| `bink2` | done: enables Bink 2 video once you provide RAD's decoder (see below) |
 | GUI | later, wrapping the same code |
 
-FFmpeg decodes Bink 1 video and Bink audio, but it has no Bink 2 video decoder, and
-**Quillreel doesn't ship one**. Bink 2 video is decoded by RAD's own `bink2w64.dll`,
-which you copy from a game that uses Bink 2 (Fallout 4 and GTA V Enhanced are tested):
+### Bink 2 video: not supported until you provide the decoder
+
+**Bink 2 video (.bk2) does not work after installing Quillreel.** Quillreel includes
+no Bink 2 video decoder (and FFmpeg has none). Until you provide one, .bk2 files can
+be inspected and their audio played and converted, but their video can't be shown or
+converted.
+
+To enable Bink 2 video, provide RAD's own decoder, `bink2w64.dll`, from a game that
+uses Bink 2 (tested: Fallout 4, GTA V Enhanced):
 
 ```sh
-quillreel bink2 install "/path/to/Fallout 4/bink2w64.dll"
+quillreel bink2 install "/path/to/Fallout 4/bink2w64.dll"   # enables .bk2 video
+quillreel bink2 status                                        # enabled or not
+quillreel bink2 remove                                        # disables it again
 ```
 
-Quillreel loads the DLL directly; Wine is not needed. Without it, .bk2 files still
-inspect fully, and `play`/`convert` handle their audio only. Details:
-[docs/bink2.md](docs/bink2.md).
+After that, `play` and `convert` handle .bk2 video exactly like RAD's decoder does.
+Quillreel loads the DLL directly; Wine is not needed. Details: [docs/bink2.md](docs/bink2.md).
 
 ## Build
 

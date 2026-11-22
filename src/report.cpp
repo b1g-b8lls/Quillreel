@@ -95,7 +95,7 @@ void print_text(std::ostream& out, const FileInfo& f) {
         out << "\n";
         std::string decoder = v.decoder;
         if (decoder.empty())
-            decoder = v.generation == "Bink 2" ? "none (needs bink2w64.dll, see: quillreel bink2)"
+            decoder = v.generation == "Bink 2" ? "not enabled (provide bink2w64.dll: quillreel bink2 install)"
                                                : "none in this FFmpeg build";
         out << "  Video decoder: " << decoder << "\n";
     } else {

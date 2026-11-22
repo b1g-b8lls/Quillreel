@@ -142,8 +142,8 @@ std::optional<std::string> dll_path() {
 }
 
 std::string missing_message() {
-    return "Bink 2 video needs RAD's decoder, bink2w64.dll, which Quillreel does not include. "
-           "Copy it from a game that uses Bink 2 with: quillreel bink2 install /path/to/bink2w64.dll";
+    return "Bink 2 video is not enabled. It needs RAD's decoder, bink2w64.dll, which Quillreel does not "
+           "include. Provide it from a game that uses Bink 2 with: quillreel bink2 install /path/to/bink2w64.dll";
 }
 
 std::string file_version(const std::string& path) {
