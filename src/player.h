@@ -90,6 +90,18 @@ public:
     bool peek_video(size_t index, double& pts) const;
     FramePtr pop_video();
 
+    // Frame stepping (while paused). The source remembers the frames it handed
+    // out most recently, and after a seek the ones decoded just before the
+    // target (kHistoryFrames / kHistoryBytes). step_back() gives the frame
+    // before the last one popped and puts that one back at the front of the
+    // queue. False if it has none: seek to the frame instead, which in
+    // single-keyframe files means decoding from the start.
+    bool step_back(VideoFrame& out);
+    // Lines the audio up with position t (the frame now shown, while paused):
+    // drops audio before t, or refills from the last kAudioHistory seconds
+    // played. Further back than that, it seeks.
+    void align_audio(double t);
+
     double audio_clock() const;  // position of the sample being heard
     bool seeking() const;        // a seek is pending or has not produced output yet
     double seek_target() const;
@@ -113,6 +125,8 @@ private:
     bool push_video(FramePtr frame, double pts);
     bool push_audio(const float* data, int samples, double start);
     void request_locked(Request r);  // mu_ must be held
+    void remember_locked(VideoFrame v);   // adds to past_, mu_ must be held
+    void record_audio_locked(const float* data, int samples);  // adds to audio_hist_
     FramePtr to_yuv420p(FramePtr frame);
     bool has_video_decoder() const { return vdec_ || b2dec_; }
     int video_send(const AVPacket* pkt);
@@ -150,6 +164,10 @@ private:
     mutable std::mutex mu_;
     std::condition_variable cv_;
     std::deque<VideoFrame> vq_;
+    std::deque<VideoFrame> past_;  // frames before vq_, oldest first; back() is the one shown
+    size_t past_bytes_ = 0;
+    std::deque<float> audio_hist_;  // interleaved samples just before audio_end_
+    double audio_skip_to_ = -1;     // drop decoded audio before this position (after stepping ahead)
     std::optional<Request> pending_;
     bool seek_active_ = true;  // also covers start-up: the clock waits for the first output
     double seek_target_ = 0;

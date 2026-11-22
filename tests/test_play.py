@@ -94,6 +94,34 @@ case("shift+A goes back a track", [A, "--test-keys", "0.8:A,1.6:shift+A", clip],
 case("--loop restarts until quit", [A, "--loop", "--test-keys", "4.0:Q", clip], (3.8, 5.2), shown=(90, 110))
 case("--audio-track 1", [A, "--audio-track", 1, clip], (2.8, 4.2), track=(1, 1), audio_clock=END)
 
+# YouTube-style keys. FRAME is one frame of the clip.
+FRAME = 1001 / 24000
+STEPS = "0.3:Space,0.5:Home,1.0:Period,1.1:Period,1.2:Period,1.3:Period,1.4:Period,1.6:Comma,1.7:Comma"
+case("frame steps (. and ,) pause and move one frame", [A, "--test-keys", STEPS + ",2.2:Q", clip], (2.0, 3.2),
+     last_pts=(3 * FRAME - 0.001, 3 * FRAME + 0.001), audio_clock=(3 * FRAME - 0.002, 3 * FRAME + 0.002),
+     rewinds=(1, 1))
+case("after stepping, playback resumes in sync", [A, "--test-keys", STEPS + ",2.0:Space", clip], (4.6, 6.2),
+     audio_clock=END, dropped=(0, 2))
+case("a seek while paused shows the frame at the target", [A, "--test-keys", "0.3:Space,0.5:2,1.2:Q", clip],
+     (1.0, 2.2), last_pts=(14 * FRAME - 0.001, 14 * FRAME + 0.001))  # 20 % = 0.6006 s, inside frame 14
+case("J goes back 10 s (to the start)", [A, "--test-keys", "1.0:J", clip], (3.8, 5.2), audio_clock=END)
+case("L goes forward 10 s (past the end)", [A, "--test-keys", "0.5:L", clip], (0.4, 1.6))
+case("End finishes playback", [A, "--test-keys", "0.5:End", clip], (0.4, 1.6))
+case("9 jumps to 90 %", [A, "--test-keys", "0.3:9", clip], (0.4, 1.4), audio_clock=END)
+
+# Stepping back past the remembered frames (120): the step decodes again, and
+# the frames before it are remembered, so the following steps are instant.
+# A single keyframe, like Bink files: the jump to 90 % keeps decoding forward.
+long_clip = WORK / "clip10.mkv"
+ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24000/1001", "-f", "lavfi", "-i",
+       "sine=frequency=440:sample_rate=44100", "-frames:v", 240, "-t", 10.01, "-pix_fmt", "yuv420p",
+       "-c:v", "libx264", "-g", 9999, "-bf", 0, "-c:a", "flac", long_clip)
+keys = ["0.3:Space", "0.5:9"] + [f"{1.0 + 0.02 * i:.2f}:Comma" for i in range(121)]
+keys += [f"{4.0 + 0.05 * i:.2f}:Comma" for i in range(4)] + ["4.6:Q"]
+# 90 % = 9.009 s = frame 216; 125 steps back = frame 91.
+case("stepping back past the remembered frames decodes once", [A, "--test-keys", ",".join(keys), long_clip],
+     (4.4, 5.8), last_pts=(91 * FRAME - 0.001, 91 * FRAME + 0.001), rewinds=(1, 1))
+
 # 8 s clip with a single keyframe, like the Bink samples.
 onekey = WORK / "onekey.mkv"
 ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",

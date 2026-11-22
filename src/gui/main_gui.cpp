@@ -242,7 +242,11 @@ int main(int argc, char** argv) {
         for (const QString& item : parser.value(test_keys).split(',', Qt::SkipEmptyParts)) {
             const int colon = item.indexOf(':');
             const double at = item.left(colon).toDouble();
-            const QKeySequence keys(item.mid(colon + 1));
+            // "," separates the list, so the frame-step keys go by name.
+            QString name = item.mid(colon + 1);
+            if (name == "Comma") name = ",";
+            if (name == "Period") name = ".";
+            const QKeySequence keys(name);
             QTimer::singleShot(static_cast<int>(at * 1000), &window, [&window, keys] {
                 if (!window.trigger_shortcut(keys)) std::fprintf(stderr, "no action for %s\n", qPrintable(keys.toString()));
             });

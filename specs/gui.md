@@ -130,7 +130,8 @@ skips drafts and pre-releases). How depends on how it was installed:
 ## Keys
 
 The same as `quillreel play` (specs/player.md), as menu shortcuts that work
-anywhere in the window. The exception is volume: Up/Down move through the file
+anywhere in the window (0–9 work as shortcuts without menu entries, and the
+Playback menu lists the rest with their keys). The exception is volume: Up/Down move through the file
 list, so volume is Ctrl+Up/Down, or plain Up/Down while the player has focus.
 F or F11 (or a double-click on the video) toggles fullscreen, which shows only
 the video and the transport bar. Esc leaves fullscreen. Q is not bound; use

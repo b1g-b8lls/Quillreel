@@ -19,6 +19,12 @@ namespace quillreel {
 namespace {
 
 constexpr size_t kVideoQueueFrames = 6;
+// Frame-step history: about 2 s of 1080p, more at smaller sizes.
+constexpr size_t kHistoryFrames = 120;
+constexpr size_t kHistoryBytes = 192u << 20;
+constexpr double kAudioHistory = 10;  // seconds
+// A seek decodes this much audio before its target, for stepping back.
+constexpr double kSeekAudioLead = 3;
 // Bink files store audio about 0.76 s ahead of the matching video, so the audio
 // buffer must hold more than that or the worker could wait on itself.
 constexpr double kMaxAudioBuffer = 1.5;
@@ -161,6 +167,10 @@ void MediaSource::request_locked(Request r) {
     seek_target_ = r.target;
     eof_ = false;
     vq_.clear();
+    past_.clear();
+    past_bytes_ = 0;
+    audio_hist_.clear();
+    audio_skip_to_ = -1;
     if (sink_) sink_->clear();
     audio_end_ = r.target;
     audio_rebase_ = true;
@@ -185,13 +195,91 @@ bool MediaSource::peek_video(size_t index, double& pts) const {
     return true;
 }
 
+namespace {
+size_t frame_bytes(const AVFrame* f) {
+    size_t n = 0;
+    for (const AVBufferRef* b : f->buf)
+        if (b) n += b->size;
+    return n;
+}
+}  // namespace
+
 FramePtr MediaSource::pop_video() {
     std::lock_guard lk(mu_);
     if (vq_.empty()) return nullptr;
     FramePtr f = std::move(vq_.front().frame);
+    const double pts = vq_.front().pts;
     vq_.pop_front();
+    // A second reference to the same picture buffers, for stepping back.
+    if (FramePtr keep{av_frame_clone(f.get())}) remember_locked({std::move(keep), pts});
     cv_.notify_all();
     return f;
+}
+
+void MediaSource::remember_locked(VideoFrame v) {
+    past_bytes_ += frame_bytes(v.frame.get());
+    past_.push_back(std::move(v));
+    while (past_.size() > kHistoryFrames || (past_bytes_ > kHistoryBytes && past_.size() > 1)) {
+        past_bytes_ -= frame_bytes(past_.front().frame.get());
+        past_.pop_front();
+    }
+}
+
+bool MediaSource::step_back(VideoFrame& out) {
+    std::lock_guard lk(mu_);
+    if (pending_ || seek_active_ || past_.size() < 2) return false;
+    FramePtr copy{av_frame_clone(past_[past_.size() - 2].frame.get())};
+    if (!copy) return false;
+    past_bytes_ -= frame_bytes(past_.back().frame.get());
+    vq_.push_front(std::move(past_.back()));
+    past_.pop_back();
+    out = {std::move(copy), past_.back().pts};
+    return true;
+}
+
+void MediaSource::align_audio(double t) {
+    std::lock_guard lk(mu_);
+    if (!sink_ || pending_ || sink_rate_ <= 0 || sink_channels_ <= 0) return;
+    const double clock = audio_end_ - sink_->buffered_seconds();
+    const double sample = 1.0 / sink_rate_;
+    if (std::abs(t - clock) < sample) return;
+    const auto ch = static_cast<size_t>(sink_channels_);
+    if (t >= audio_end_) {
+        // Past everything decoded so far: the worker drops audio up to t.
+        sink_->clear();
+        audio_skip_to_ = t;
+    } else {
+        // Everything from t to audio_end_ was played or queued recently: queue it
+        // again. A seek doesn't keep the frames and audio from before it, so
+        // a stretch older than the history plays as silence rather than
+        // decoding again (which would forget the remembered frames).
+        const double hist_start = audio_end_ - static_cast<double>(audio_hist_.size() / ch) * sample;
+        size_t from = static_cast<size_t>(std::max<long long>(0, std::llround((t - hist_start) * sink_rate_))) * ch;
+        from = std::min(from, audio_hist_.size());
+        sink_->clear();
+        if (t < hist_start) {
+            const auto gap = static_cast<size_t>(std::llround(std::min(hist_start - t, kAudioHistory) * sink_rate_));
+            const std::vector<float> silence(gap * ch, 0.0f);
+            if (gap) sink_->write(silence.data(), static_cast<int>(gap));
+        }
+        std::vector<float> chunk;
+        chunk.reserve(16384);
+        for (size_t i = from; i < audio_hist_.size(); i += chunk.size()) {
+            chunk.assign(audio_hist_.begin() + static_cast<std::ptrdiff_t>(i),
+                         audio_hist_.begin() + static_cast<std::ptrdiff_t>(std::min(audio_hist_.size(), i + 16384 / ch * ch)));
+            sink_->write(chunk.data(), static_cast<int>(chunk.size() / ch));
+        }
+        audio_skip_to_ = -1;
+    }
+    cv_.notify_all();
+}
+
+void MediaSource::record_audio_locked(const float* data, int samples) {
+    const auto ch = static_cast<size_t>(std::max(sink_channels_, 1));
+    audio_hist_.insert(audio_hist_.end(), data, data + static_cast<size_t>(samples) * ch);
+    const auto cap = static_cast<size_t>(kAudioHistory * std::max(sink_rate_, 1)) * ch;
+    if (audio_hist_.size() > cap)
+        audio_hist_.erase(audio_hist_.begin(), audio_hist_.begin() + static_cast<std::ptrdiff_t>(audio_hist_.size() - cap));
 }
 
 double MediaSource::audio_clock() const {
@@ -284,7 +372,8 @@ void MediaSource::worker() {
 // where the worker is, if nothing at the target has been read yet and no
 // keyframe lies in between. Otherwise: seek as close as the demuxer allows,
 // skip video packets (undecoded) up to the last indexed keyframe before the
-// target, then decode. Either way, frames and samples before the target are dropped.
+// target, then decode. Either way, samples before the target and frames before
+// the one showing at the target are dropped (kept for stepping back).
 void MediaSource::do_seek(const Request& r) {
     const int64_t ts = std::llround(r.target * AV_TIME_BASE);
     int64_t keyframe = AV_NOPTS_VALUE;  // last indexed keyframe at or before the target
@@ -324,8 +413,10 @@ void MediaSource::do_seek(const Request& r) {
     }
     swr_free(&swr_);
 
-    double half_frame = setup_.fps > 0 ? 0.5 / setup_.fps : 0.02;
-    video_drop_before_ = r.target > 0 ? r.target - half_frame : -1;
+    // Keep the frame on screen at the target (the last one starting at or before
+    // it), so a seek while paused shows it at once.
+    const double frame = setup_.fps > 0 ? 1.0 / setup_.fps : 0.04;
+    video_drop_before_ = r.target > 0 ? r.target - frame * 0.999 : -1;
     audio_drop_before_ = r.target > 0 ? r.target : -1;
     audio_next_pts_ = -1;
 }
@@ -359,7 +450,13 @@ void MediaSource::decode_video(const AVPacket* pkt) {
         }
         double pts = static_cast<double>(f->best_effort_timestamp) * av_q2d(vst_->time_base);
         if (pts < video_drop_before_) {
-            av_frame_unref(f.get());
+            // Before the seek target: not shown, but kept for stepping back
+            // (the oldest drop out as the history fills).
+            if (FramePtr kept = to_yuv420p(std::move(f))) {
+                std::lock_guard lk(mu_);
+                if (!pending_) remember_locked({std::move(kept), pts});
+            }
+            f.reset(av_frame_alloc());
             continue;
         }
         FramePtr out = to_yuv420p(std::move(f));
@@ -386,7 +483,7 @@ void MediaSource::video_flush() {
 void MediaSource::decode_audio(const AVPacket* pkt) {
     const AVStream* st = audio_streams_[worker_track_];
     if (pkt && pkt->pts != AV_NOPTS_VALUE && audio_drop_before_ > 0 &&
-        static_cast<double>(pkt->pts) * av_q2d(st->time_base) < audio_drop_before_ - 1.0)
+        static_cast<double>(pkt->pts) * av_q2d(st->time_base) < audio_drop_before_ - kSeekAudioLead)
         return;  // well before the seek target: not worth decoding
     if (avcodec_send_packet(adec_.get(), pkt) < 0 && pkt) return;
 
@@ -436,6 +533,11 @@ void MediaSource::decode_audio(const AVPacket* pkt) {
         const float* data = pcm_.data();
         if (!std::isnan(start) && start < audio_drop_before_) {
             int skip = static_cast<int>(std::min<int64_t>(n, std::llround((audio_drop_before_ - start) * rate)));
+            {
+                // Not played, but remembered for stepping back before the target.
+                std::lock_guard lk(mu_);
+                if (!pending_ && channels == sink_channels_ && rate == sink_rate_) record_audio_locked(data, skip);
+            }
             data += static_cast<size_t>(skip) * channels;
             n -= skip;
             start += static_cast<double>(skip) / rate;
@@ -467,7 +569,19 @@ bool MediaSource::push_audio(const float* data, int samples, double start) {
         if (!std::isnan(start)) audio_end_ = start;
         audio_rebase_ = false;
     }
+    if (audio_skip_to_ >= 0) {
+        // The picture was stepped ahead of the decoded audio: drop up to it.
+        const auto skip = static_cast<int>(
+            std::clamp<long long>(std::llround((audio_skip_to_ - audio_end_) * sink_rate_), 0, samples));
+        record_audio_locked(data, skip);
+        audio_end_ += static_cast<double>(skip) / sink_rate_;
+        data += static_cast<size_t>(skip) * sink_channels_;
+        samples -= skip;
+        if (samples > 0) audio_skip_to_ = -1;
+        if (samples == 0) return true;
+    }
     sink_->write(data, samples);
+    record_audio_locked(data, samples);
     audio_end_ += static_cast<double>(samples) / sink_rate_;
     // With video, the clock starts on the first frame (Bink audio comes first in the file).
     if (!has_video_decoder()) seek_active_ = false;

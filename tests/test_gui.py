@@ -84,8 +84,18 @@ case("plays every frame in real time and stops at the end", [A, P, clip], (2.8, 
 case("pause and resume (Space)", [A, P, clip, "--test-keys", "0.8:Space,1.8:Space"], (3.8, 6.5), shown=(70, 72))
 case("seek back (Left)", [A, P, clip, "--test-keys", "2.0:Left"], (4.8, 7.5), shown=(110, 122), rewinds=(1, 1))
 case("next audio track (A)", [A, P, clip, "--test-keys", "1.0:A"], (2.8, 5.5), track=(1, 1))
-case("loop (L) restarts until the time limit", [A, P, clip, "--test-keys", "0.2:L", "--test-quit-after", 4.5],
+case("loop (R) restarts until the time limit", [A, P, clip, "--test-keys", "0.2:R", "--test-quit-after", 4.5],
      (4.0, 7.0), shown=(85, 115))
+FRAME = 1001 / 24000
+STEPS = "0.3:Space,0.5:Home,1.0:Period,1.1:Period,1.2:Period,1.3:Period,1.4:Period,1.6:Comma,1.7:Comma"
+case("frame steps (. and ,) pause and move one frame", [A, P, clip, "--test-keys", STEPS, "--test-quit-after", 2.2],
+     (2.0, 4.0), last_pts=(3 * FRAME - 0.001, 3 * FRAME + 0.001), rewinds=(1, 1))
+case("after stepping, playback resumes and finishes", [A, P, clip, "--test-keys", STEPS + ",2.0:Space"], (4.4, 7.5),
+     last_pts=(70 * FRAME, 72 * FRAME))
+case("a seek while paused shows the frame at the target (2 = 20 %)",
+     [A, P, clip, "--test-keys", "0.3:Space,0.5:2", "--test-quit-after", 1.2], (1.0, 3.0),
+     last_pts=(14 * FRAME - 0.001, 14 * FRAME + 0.001))
+case("L goes forward 10 s (past the end)", [A, P, clip, "--test-keys", "0.5:L"], (0.4, 2.5))
 
 # The file list: real Bink files, and a broken one.
 listdir = WORK / "list"

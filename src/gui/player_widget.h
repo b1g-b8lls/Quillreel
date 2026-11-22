@@ -55,6 +55,9 @@ public slots:
     void seek_by(double seconds);
     void seek_to(double seconds);
     void restart();
+    void seek_end();
+    void seek_percent(int tenths);   // 0-9: 0-90 % of the file
+    void step_frame(int direction);  // pauses, then shows the next (+1) or previous (-1) frame
     void step_track(int direction);  // +1 next, -1 previous
     void change_volume(int delta);
     void toggle_mute();

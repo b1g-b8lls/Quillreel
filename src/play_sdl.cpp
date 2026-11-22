@@ -111,6 +111,9 @@ private:
         for (const auto& [at, spec] : ui_.test_keys) {
             bool shift = spec.starts_with("shift+");
             std::string name = shift ? spec.substr(6) : spec;
+            // "," separates the list, so the frame-step keys go by name.
+            if (name == "Comma") name = ",";
+            if (name == "Period") name = ".";
             SDL_Keycode key = SDL_GetKeyFromName(name.c_str());
             if (key == SDLK_UNKNOWN) {
                 std::cerr << "quillreel: unknown key name in --test-keys: " << spec << "\n";
@@ -263,6 +266,52 @@ private:
         show_osd();
     }
 
+    void set_paused(bool paused) {
+        clock_.set_paused(paused);
+        if (sink_) sink_->set_paused(paused);
+    }
+
+    // , and . (YouTube's keys): pause, then show the previous or next frame.
+    void step_frame(int direction) {
+        if (audio_only_ || !setup_.has_video || setup_.fps <= 0 || src_->seeking()) return;
+        set_paused(true);
+        show_due_frames(clock_.now());  // what's on screen must be the last frame handed out
+        if (direction > 0) {
+            double pts = 0;
+            if (!src_->peek_video(0, pts)) return;  // not decoded yet, or the end
+            FramePtr f = src_->pop_video();
+            if (!f) return;
+            show_frame(f.get(), pts);
+        } else {
+            VideoFrame v;
+            if (src_->step_back(v)) {
+                show_frame(v.frame.get(), v.pts);
+            } else if (shown_ > 0 && last_pts_ > 0) {
+                // Before the remembered frames: decode up to the previous one
+                // (between its time and the next, so the paused clock shows it).
+                seek_to(last_pts_ - 0.75 / setup_.fps);
+                return;
+            } else {
+                return;
+            }
+        }
+        src_->align_audio(clock_.now());
+        show_osd();
+    }
+
+    void show_frame(const AVFrame* f, double pts) {
+        upload(f);
+        last_pts_ = pts;
+        ++shown_;
+        clock_.set(pts);
+        dirty_ = true;
+    }
+
+    // 0-9: jump to 0-90 % of the file.
+    void seek_percent(int tenths) {
+        if (setup_.duration > 0) seek_to(setup_.duration * tenths / 10.0);
+    }
+
     void set_volume(int v) {
         volume_ = std::clamp(v, 0, 100);
         muted_ = false;
@@ -300,8 +349,7 @@ private:
                 break;
             case SDLK_SPACE:
             case SDLK_K:
-                clock_.set_paused(!clock_.paused());
-                if (sink_) sink_->set_paused(clock_.paused());
+                set_paused(!clock_.paused());
                 show_osd();
                 break;
             case SDLK_F:
@@ -313,8 +361,27 @@ private:
             case SDLK_RIGHT:
                 seek_to(now + (shift ? 30 : 5));
                 break;
+            case SDLK_J:
+                seek_to(now - 10);
+                break;
+            case SDLK_L:
+                seek_to(now + 10);
+                break;
+            case SDLK_COMMA:
+                step_frame(-1);
+                break;
+            case SDLK_PERIOD:
+                step_frame(1);
+                break;
             case SDLK_HOME:
                 seek_to(0);
+                break;
+            case SDLK_END:
+                seek_to(setup_.duration > 0 ? setup_.duration : now);
+                break;
+            case SDLK_0: case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4:
+            case SDLK_5: case SDLK_6: case SDLK_7: case SDLK_8: case SDLK_9:
+                seek_percent(static_cast<int>(ev.key.key - SDLK_0));
                 break;
             case SDLK_UP:
                 set_volume(volume_ + 10);
@@ -336,7 +403,7 @@ private:
                 }
                 show_osd();
                 break;
-            case SDLK_L:
+            case SDLK_R:  // "repeat"; L is YouTube's 10 s forward
                 loop_ = !loop_;
                 show_osd();
                 break;
@@ -349,6 +416,28 @@ private:
             break;
         }
         return true;
+    }
+
+    // Shows the newest frame that is due, dropping any that are already late.
+    // Returns when the next one is due, or -1.
+    double show_due_frames(double now) {
+        double pts0 = 0, pts1 = 0;
+        while (src_->peek_video(0, pts0)) {
+            if (pts0 > now) return pts0;
+            if (src_->peek_video(1, pts1) && pts1 <= now) {
+                src_->pop_video();
+                ++dropped_;
+                continue;
+            }
+            FramePtr f = src_->pop_video();
+            if (!f) break;
+            upload(f.get());
+            if (shown_ == 0) first_pts_ = pts0;
+            last_pts_ = pts0;
+            ++shown_;
+            dirty_ = true;
+        }
+        return -1;
     }
 
     void loop() {
@@ -367,28 +456,7 @@ private:
             }
 
             double now = master_clock();
-
-            // Show the newest frame that is due; drop any that are already late.
-            double next_due = -1;
-            double pts0 = 0, pts1 = 0;
-            while (src_->peek_video(0, pts0)) {
-                if (pts0 > now) {
-                    next_due = pts0;
-                    break;
-                }
-                if (src_->peek_video(1, pts1) && pts1 <= now) {
-                    src_->pop_video();
-                    ++dropped_;
-                    continue;
-                }
-                FramePtr f = src_->pop_video();
-                if (!f) break;
-                upload(f.get());
-                if (shown_ == 0) first_pts_ = pts0;
-                last_pts_ = pts0;
-                ++shown_;
-                dirty_ = true;
-            }
+            const double next_due = show_due_frames(now);
 
             if (dirty_ || (osd_visible() && last_osd_text_ != status_line(now) + detail_line()) ||
                 (!osd_visible() && !last_osd_text_.empty())) {

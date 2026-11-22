@@ -99,7 +99,7 @@ PlayerWidget::PlayerWidget(QWidget* parent) : QWidget(parent) {
     position_ = new SeekSlider(Qt::Horizontal, this);
     position_->setFocusPolicy(Qt::NoFocus);
     position_->setMinimumWidth(120);
-    position_->setToolTip(tr("Position (Left/Right: 5 s, with Shift: 30 s)"));
+    position_->setToolTip(tr("Position (J/L: 10 s, Left/Right: 5 s, with Shift: 30 s, comma/period: one frame, 0-9: 0-90 %)"));
     time_ = new QLabel(format_time(0) + " / " + format_time(0), this);
     time_->setMinimumWidth(time_->fontMetrics().horizontalAdvance(" 0:00:00 / 0:00:00 "));
     tracks_ = new QComboBox(this);
@@ -113,7 +113,7 @@ PlayerWidget::PlayerWidget(QWidget* parent) : QWidget(parent) {
     volume_->setFixedWidth(90);
     volume_->setFocusPolicy(Qt::NoFocus);
     volume_->setToolTip(tr("Volume (Up/Down when the video has focus)"));
-    loop_ = tool_button(this, QStyle::SP_BrowserReload, tr("Loop (L)"));
+    loop_ = tool_button(this, QStyle::SP_BrowserReload, tr("Loop (R)"));
     loop_->setCheckable(true);
     fullscreen_ = tool_button(this, QStyle::SP_TitleBarMaxButton, tr("Fullscreen (F, double-click the video)"));
 
@@ -360,6 +360,45 @@ void PlayerWidget::seek_by(double seconds) {
 }
 
 void PlayerWidget::restart() { seek_to(0); }
+
+void PlayerWidget::seek_end() {
+    if (src_) seek_to(setup_.duration > 0 ? setup_.duration : clock_.now());
+}
+
+void PlayerWidget::seek_percent(int tenths) {
+    if (src_ && setup_.duration > 0) seek_to(setup_.duration * tenths / 10.0);
+}
+
+void PlayerWidget::step_frame(int direction) {
+    if (!src_ || !setup_.has_video || setup_.fps <= 0 || src_->seeking()) return;
+    ended_ = false;
+    set_paused(true);
+    tick();  // show any frame that is due: what's on screen must be the last one handed out
+    double pts = 0;
+    FramePtr frame;
+    if (direction > 0) {
+        if (!src_->peek_video(0, pts)) return;  // not decoded yet, or the end
+        frame = src_->pop_video();
+    } else {
+        VideoFrame v;
+        if (src_->step_back(v)) {
+            frame = std::move(v.frame);
+            pts = v.pts;
+        } else if (stats_.shown > 0 && stats_.last_pts > 0) {
+            // Before the remembered frames: decode up to the previous one
+            // (between its time and the next, so the paused clock shows it).
+            seek_to(stats_.last_pts - 0.75 / setup_.fps);
+            return;
+        }
+    }
+    if (!frame) return;
+    stats_.last_pts = pts;
+    ++stats_.shown;
+    clock_.set(pts);
+    view_->set_frame(std::move(frame));
+    src_->align_audio(pts);
+    update_controls(true);
+}
 
 void PlayerWidget::step_track(int direction) {
     if (!src_ || !sink_ || setup_.audio_tracks < 2) return;

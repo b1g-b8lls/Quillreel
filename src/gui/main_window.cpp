@@ -162,18 +162,31 @@ void MainWindow::build_menus() {
     };
     add(tr("Play / &Pause"), {QKeySequence(Qt::Key_Space), QKeySequence(Qt::Key_K)}, [this] { player_->toggle_pause(); });
     add(tr("&Restart"), {QKeySequence(Qt::Key_Home)}, [this] { player_->restart(); });
+    add(tr("Go to &End"), {QKeySequence(Qt::Key_End)}, [this] { player_->seek_end(); });
     play->addSeparator();
+    add(tr("Previous &Frame"), {QKeySequence(Qt::Key_Comma)}, [this] { player_->step_frame(-1); });
+    add(tr("Ne&xt Frame"), {QKeySequence(Qt::Key_Period)}, [this] { player_->step_frame(1); });
     add(tr("Back 5 s"), {QKeySequence(Qt::Key_Left)}, [this] { player_->seek_by(-5); });
     add(tr("Forward 5 s"), {QKeySequence(Qt::Key_Right)}, [this] { player_->seek_by(5); });
+    add(tr("Back 10 s"), {QKeySequence(Qt::Key_J)}, [this] { player_->seek_by(-10); });
+    add(tr("Forward 10 s"), {QKeySequence(Qt::Key_L)}, [this] { player_->seek_by(10); });
     add(tr("Back 30 s"), {QKeySequence(Qt::SHIFT | Qt::Key_Left)}, [this] { player_->seek_by(-30); });
     add(tr("Forward 30 s"), {QKeySequence(Qt::SHIFT | Qt::Key_Right)}, [this] { player_->seek_by(30); });
+    // 0-9 jump to 0-90 % (YouTube's keys), without cluttering the menu.
+    for (int i = 0; i <= 9; ++i) {
+        auto* a = new QAction(this);
+        a->setShortcut(QKeySequence(Qt::Key_0 + i));
+        a->setShortcutContext(Qt::WindowShortcut);
+        connect(a, &QAction::triggered, player_, [this, i] { player_->seek_percent(i); });
+        addAction(a);
+    }
     play->addSeparator();
     add(tr("&Next Audio Track"), {QKeySequence(Qt::Key_A)}, [this] { player_->step_track(1); });
     add(tr("Pre&vious Audio Track"), {QKeySequence(Qt::SHIFT | Qt::Key_A)}, [this] { player_->step_track(-1); });
     add(tr("Volume Up"), {QKeySequence(Qt::CTRL | Qt::Key_Up)}, [this] { player_->change_volume(10); });
     add(tr("Volume Down"), {QKeySequence(Qt::CTRL | Qt::Key_Down)}, [this] { player_->change_volume(-10); });
     add(tr("&Mute"), {QKeySequence(Qt::Key_M)}, [this] { player_->toggle_mute(); });
-    loop_action_ = add(tr("&Loop"), {QKeySequence(Qt::Key_L)}, [this](bool on) { player_->set_loop(on); });
+    loop_action_ = add(tr("&Loop"), {QKeySequence(Qt::Key_R)}, [this](bool on) { player_->set_loop(on); });
     loop_action_->setCheckable(true);
 
     QMenu* view = menuBar()->addMenu(tr("&View"));
