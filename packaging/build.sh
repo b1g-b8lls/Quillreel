@@ -107,3 +107,26 @@ linuxdeploy --appdir "$APPDIR" \
 echo "   $LDAI_OUTPUT"
 echo "== linuxdeploy used:"
 cat /usr/local/share/linuxdeploy.sha256
+
+# The Debian source packages of every library bundled in the AppImage, with
+# links to their source on snapshot.debian.org: the corresponding source the
+# GPL/LGPL parts (FFmpeg, x264, x265, Qt, ...) must be offered with. Publish it
+# next to the AppImage (docs/LEGAL.md).
+SOURCES="$LDAI_OUTPUT-sources.md"
+{
+    echo "# Sources of the libraries bundled in $(basename "$LDAI_OUTPUT")"
+    echo
+    echo "Built on $(. /etc/os-release && echo "$PRETTY_NAME") from these Debian source packages."
+    echo "Quillreel's own source is this repository at the matching tag."
+    echo
+    echo "| Source package | Version |"
+    echo "|---|---|"
+    find "$APPDIR" -name '*.so*' -printf '%f\n' | sort -u | while read -r lib; do
+        dpkg -S "*/$lib" 2>/dev/null | head -1 | cut -d: -f1
+    done | sort -u | xargs dpkg-query -W -f='${source:Package} ${source:Version}\n' | sort -u |
+    while read -r pkg ver; do
+        url_ver=$(printf '%s' "$ver" | sed 's/:/%3A/g; s/+/%2B/g; s/~/%7E/g')
+        echo "| $pkg | [$ver](https://snapshot.debian.org/package/$pkg/$url_ver/) |"
+    done
+} > "$SOURCES"
+echo "   $SOURCES"

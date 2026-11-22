@@ -28,9 +28,11 @@ The `.deb` packages contain only Quillreel and depend on the distribution's own
 FFmpeg, Qt and SDL. The AppImage bundles third-party libraries: Qt (LGPL-3.0),
 FFmpeg (built with GPL options), x264 (GPL-2.0+), SDL3 (zlib) and their
 dependencies. Whoever distributes the AppImage must make the corresponding source
-code of the GPL/LGPL parts available, e.g. by linking the Debian 13 source
-packages of the exact versions bundled (`apt-get source` in the build container)
-next to the release. `packaging/build.sh` builds them from Debian 13's archive.
+code of the GPL/LGPL parts available. `packaging/build.sh` builds the AppImage
+from Debian 13's packages and writes `Quillreel-<v>-x86_64.AppImage-sources.md`
+next to it: every bundled library's Debian source package and exact version,
+linked to its source on snapshot.debian.org. Publish that file with each
+AppImage release.
 
 ## Not legal advice
 
