@@ -20,6 +20,7 @@
 #include <cmath>
 #include <format>
 
+#include "glyphs.h"
 #include "video_view.h"
 
 namespace quillreel::gui {
@@ -53,9 +54,9 @@ QString format_time(double s) {
     return QString::fromStdString(std::format("{}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60));
 }
 
-QToolButton* tool_button(QWidget* parent, QStyle::StandardPixmap icon, const QString& tip) {
+// Icons are set by PlayerWidget::refresh_icons().
+QToolButton* tool_button(QWidget* parent, const QString& tip) {
     auto* b = new QToolButton(parent);
-    b->setIcon(parent->style()->standardIcon(icon));
     b->setToolTip(tip);
     b->setAutoRaise(true);
     b->setFocusPolicy(Qt::NoFocus);
@@ -93,8 +94,8 @@ PlayerWidget::PlayerWidget(QWidget* parent) : QWidget(parent) {
     stack_->addWidget(note_page_);
     show_note(tr("Open a Bink file to play it.\nDouble-click a file in the list, or use File > Open."));
 
-    play_ = tool_button(this, QStyle::SP_MediaPlay, tr("Play / pause (Space)"));
-    restart_ = tool_button(this, QStyle::SP_MediaSkipBackward, tr("Restart (Home)"));
+    play_ = tool_button(this, tr("Play / pause (Space)"));
+    restart_ = tool_button(this, tr("Restart (Home)"));
     position_ = new SeekSlider(Qt::Horizontal, this);
     position_->setFocusPolicy(Qt::NoFocus);
     position_->setMinimumWidth(120);
@@ -105,16 +106,18 @@ PlayerWidget::PlayerWidget(QWidget* parent) : QWidget(parent) {
     tracks_->setFocusPolicy(Qt::NoFocus);
     tracks_->setToolTip(tr("Audio track (A / Shift+A)"));
     tracks_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    mute_ = tool_button(this, QStyle::SP_MediaVolume, tr("Mute (M)"));
+    mute_ = tool_button(this, tr("Mute (M)"));
+    mute_->setCheckable(true);  // looks pressed while muted
     volume_ = new QSlider(Qt::Horizontal, this);
     volume_->setRange(0, 100);
     volume_->setValue(100);
     volume_->setFixedWidth(90);
     volume_->setFocusPolicy(Qt::NoFocus);
     volume_->setToolTip(tr("Volume (Up/Down when the video has focus)"));
-    loop_ = tool_button(this, QStyle::SP_BrowserReload, tr("Loop (R)"));
+    loop_ = tool_button(this, tr("Loop (R)"));
     loop_->setCheckable(true);
-    fullscreen_ = tool_button(this, QStyle::SP_TitleBarMaxButton, tr("Fullscreen (F, double-click the video)"));
+    fullscreen_ = tool_button(this, tr("Fullscreen (F, double-click the video)"));
+    refresh_icons();
 
     auto* bar = new QHBoxLayout;
     bar->setContentsMargins(4, 2, 4, 2);
@@ -313,8 +316,10 @@ void PlayerWidget::update_controls(bool force) {
     mute_->setEnabled(have && sink_);
     volume_->setEnabled(have && sink_);
     const bool playing = have && !clock_.paused();
-    play_->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
-    mute_->setIcon(style()->standardIcon(muted_ ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
+    play_->setIcon(playing ? icon_pause_ : icon_play_);
+    mute_->setIcon(muted_ ? icon_muted_ : icon_volume_);
+    mute_->setChecked(muted_);
+    mute_->setToolTip(muted_ ? tr("Unmute (M)") : tr("Mute (M)"));
     double now = have ? std::min(clock_.now(), setup_.duration > 0 ? setup_.duration : clock_.now()) : 0;
     if (ended_) now = setup_.duration;
     position_->setRange(0, static_cast<int>(setup_.duration * 1000));
@@ -431,6 +436,23 @@ void PlayerWidget::set_loop(bool loop) {
     loop_on_ = loop;
     loop_->setChecked(loop);
     emit loop_changed(loop);
+}
+
+void PlayerWidget::refresh_icons() {
+    const QPalette pal = palette();
+    icon_play_ = glyph_icon(Glyph::Play, pal);
+    icon_pause_ = glyph_icon(Glyph::Pause, pal);
+    icon_volume_ = glyph_icon(Glyph::Volume, pal);
+    icon_muted_ = glyph_icon(Glyph::Muted, pal);
+    restart_->setIcon(glyph_icon(Glyph::Restart, pal));
+    loop_->setIcon(glyph_icon(Glyph::Loop, pal));
+    fullscreen_->setIcon(glyph_icon(Glyph::Fullscreen, pal));
+    update_controls(true);
+}
+
+void PlayerWidget::changeEvent(QEvent* e) {
+    if (e->type() == QEvent::PaletteChange || e->type() == QEvent::StyleChange) refresh_icons();
+    QWidget::changeEvent(e);
 }
 
 void PlayerWidget::keyPressEvent(QKeyEvent* e) {

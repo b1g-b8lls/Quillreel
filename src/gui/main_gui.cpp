@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // quillreel-gui: the Qt front end. Spec: specs/gui.md
 #include <algorithm>
+#include <optional>
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDialog>
@@ -35,13 +36,17 @@ namespace {
 // GNOME's dark style) while the Qt theme in use only has light colours, e.g. the
 // portal or GTK3 theme with Qt's Fusion style. Then use a dark palette. Themes
 // that supply their own dark colours (KDE Plasma, a dark GTK theme) are left alone.
+// --test-color-scheme: overrides what the desktop asks for (screenshots).
+std::optional<Qt::ColorScheme> g_forced_scheme;
+
 void follow_color_scheme(QApplication& app) {
     static bool overridden = false;
     if (overridden) {
         app.setPalette(QPalette());  // an empty palette hands colours back to the theme
         overridden = false;
     }
-    const bool want_dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+    const bool want_dark =
+        g_forced_scheme.value_or(QGuiApplication::styleHints()->colorScheme()) == Qt::ColorScheme::Dark;
     const bool theme_light = QApplication::palette().color(QPalette::Window).lightness() > 128;
     if (!want_dark || !theme_light) return;
     overridden = true;
@@ -145,14 +150,19 @@ int main(int argc, char** argv) {
     const QCommandLineOption test_cancel = hidden({"test-convert-cancel-after", "Cancel after SECONDS.", "seconds"});
     const QCommandLineOption test_bink2 = hidden({"test-bink2", "After reading the list: install:PATH or remove.", "action"});
     const QCommandLineOption test_dialog = hidden({"test-dialog", "Open a dialog: convert or bink2.", "name"});
+    const QCommandLineOption test_scheme = hidden({"test-color-scheme", "Use the dark or light colour scheme.", "scheme"});
     const QCommandLineOption test_update =
         hidden({"test-update", "Check for an update (check), or also install it (install), then quit.", "action"});
     const QList<QCommandLineOption> test_options = {allow_non_bink, test_play,  test_quit,    test_keys,
                                                     test_list,      report,     test_silent,  test_shot,
                                                     test_convert,   test_cancel, test_bink2,  test_dialog,
-                                                    test_update};
+                                                    test_update,    test_scheme};
     parser.addOptions(test_options);
     parser.process(app);
+    if (parser.isSet(test_scheme)) {  // as if the desktop asked for it (screenshots of either look)
+        g_forced_scheme = parser.value(test_scheme) == "dark" ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
+        follow_color_scheme(app);
+    }
 
     quillreel::gui::GuiOptions opts;
     opts.allow_non_bink = parser.isSet(allow_non_bink);

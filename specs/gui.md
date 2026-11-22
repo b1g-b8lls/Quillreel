@@ -149,6 +149,11 @@ again from the beginning. Loop restarts instead.
   It used Qt Multimedia's `QAudioSink` until 0.7.0, which found no audio
   device under Wine (and most likely on some Windows systems): files then played
   silently and audio-only ones (Bink 2 without the DLL) not at all.
+- **Transport icons**: drawn in the palette's colours (`src/gui/glyphs.*`) and
+  redrawn when the palette changes, because the styles' built-in media icons are
+  fixed dark pixmaps, unreadable on dark themes. Mute and Loop are checkable
+  buttons drawn in the highlight colour when on; Mute's tooltip says "Unmute"
+  while muted. `--test-color-scheme dark|light` forces either look for screenshots.
 - **Video**: `QOpenGLWidget`. The Y, U and V planes are uploaded as textures and
   converted in a shader. The matrix is chosen like the SDL player: BT.601 limited
   range unless the frame says BT.709 and/or full range.

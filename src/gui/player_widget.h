@@ -72,6 +72,7 @@ signals:
 
 protected:
     void keyPressEvent(QKeyEvent* e) override;
+    void changeEvent(QEvent* e) override;
 
 private:
     void tick();
@@ -80,6 +81,7 @@ private:
     void apply_volume();
     void set_paused(bool paused);
     void show_note(const QString& text, bool offer_bink2 = false);
+    void refresh_icons();  // after a palette or style change
 
     VideoView* view_ = nullptr;
     QLabel* note_ = nullptr;
@@ -96,6 +98,7 @@ private:
     QToolButton* loop_ = nullptr;
     QToolButton* fullscreen_ = nullptr;
     QTimer timer_;
+    QIcon icon_play_, icon_pause_, icon_volume_, icon_muted_;
 
     // The worker inside src_ writes to sink_, so src_ is declared after it
     // (destroyed first).
