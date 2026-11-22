@@ -10,6 +10,8 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <new>
+#include <system_error>
 #include <vector>
 
 extern "C" {
@@ -17,9 +19,20 @@ extern "C" {
 }
 
 #include "pe_image.h"
-#include "win32_shim.h"
 
+#ifdef _WIN32
+// On Windows the DLL is loaded by the system's own loader.
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+// Elsewhere Quillreel loads it itself (pe_image.cpp) and supplies the Windows
+// functions it imports (win32_shim.cpp).
+#include "win32_shim.h"
 #define WINAPI __attribute__((ms_abi))
+#endif
 
 namespace quillreel::bink2 {
 namespace {
@@ -45,11 +58,28 @@ struct Api {
 constexpr uint32_t kBinkNoFrameBuffers = 0x400;  // the caller allocates the frame buffers
 
 struct Loaded {
+#ifdef _WIN32
+    HMODULE module = nullptr;
+    void* symbol(const char* name) const { return reinterpret_cast<void*>(GetProcAddress(module, name)); }
+#else
     std::unique_ptr<pe::Image> image;
+    void* symbol(const char* name) const { return image->export_address(name); }
+#endif
     Api api{};
 };
 
-std::expected<const Api*, Error> load(const std::string& path) {
+#ifdef _WIN32
+std::wstring widen(const std::string& utf8) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    std::wstring w(static_cast<size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), w.data(), n);
+    return w;
+}
+#endif
+
+// keep = false only checks the DLL: on Windows it is unloaded again (unless it
+// was already loaded), so it isn't held open, e.g. in a game's folder.
+std::expected<const Api*, Error> load(const std::string& path, bool keep = true) {
     static std::mutex m;
     static auto* loaded = new std::map<std::string, Loaded>;  // kept for the life of the process
     std::lock_guard lk(m);
@@ -60,10 +90,19 @@ std::expected<const Api*, Error> load(const std::string& path) {
 
     if (!std::filesystem::is_regular_file(path, ec))
         return fail(ErrorKind::Unsupported, std::format("{}: no such file", path));
+    Loaded l;
+#ifdef _WIN32
+    // Runs DllMain. Any DLLs it imports are looked for next to it first.
+    const std::wstring wide = widen(std::filesystem::absolute(path, ec).string());
+    l.module = LoadLibraryExW(wide.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!l.module)
+        return fail(ErrorKind::Unsupported, std::format("{}: cannot load the DLL: {}", path,
+                                                        std::system_category().message(static_cast<int>(GetLastError()))));
+#else
     auto image = pe::Image::load(path, win32::resolve_import);
     if (!image) return fail(ErrorKind::Unsupported, std::format("{}: {}", path, image.error()));
-    Loaded l;
     l.image = std::move(*image);
+#endif
     struct Need {
         const char* name;
         void* slot;
@@ -79,14 +118,27 @@ std::expected<const Api*, Error> load(const std::string& path) {
         {"BinkGetError", &l.api.get_error},
     };
     for (const Need& n : needs) {
-        void* fn = l.image->export_address(n.name);
-        if (!fn)
+        void* fn = l.symbol(n.name);
+        if (!fn) {
+#ifdef _WIN32
+            FreeLibrary(l.module);
+#endif
             return fail(ErrorKind::Unsupported,
                         std::format("{}: not a Bink 2 decoder DLL (no {} function)", path, n.name));
+        }
         std::memcpy(n.slot, &fn, sizeof fn);
     }
+#ifdef _WIN32
+    if (!keep) {
+        FreeLibrary(l.module);
+        static const Api checked{};  // nothing may call through this; check() only needs success
+        return &checked;
+    }
+#else
+    (void)keep;
     win32::finish_load(*l.image);
     if (!l.image->attach()) return fail(ErrorKind::Unsupported, std::format("{}: the DLL failed to initialise", path));
+#endif
     auto [it, ok] = loaded->emplace(key, std::move(l));
     return &it->second.api;
 }
@@ -123,6 +175,12 @@ std::optional<Layout> detect_layout(const uint32_t* u) {
 }  // namespace
 
 std::string installed_path() {
+#ifdef _WIN32
+    // %LOCALAPPDATA%\Quillreel. Paths are UTF-8: the executables run with UTF-8
+    // as their code page (data/windows/quillreel.manifest).
+    const char* local = std::getenv("LOCALAPPDATA");
+    return std::string(local && *local ? local : ".") + "\\Quillreel\\bink2w64.dll";
+#else
     std::string base;
     if (const char* x = std::getenv("XDG_DATA_HOME"); x && *x == '/')
         base = x;
@@ -131,7 +189,27 @@ std::string installed_path() {
     else
         base = ".";
     return base + "/quillreel/bink2w64.dll";
+#endif
 }
+
+namespace {
+// Windows can't overwrite or delete a DLL while it is loaded, and this process
+// (or another Quillreel) may have the installed copy loaded. It can rename it,
+// though: move it aside, delete it if it's free, and retry older leftovers.
+void move_aside_installed() {
+#ifdef _WIN32
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dest = installed_path();
+    for (const auto& e : fs::directory_iterator(dest.parent_path(), ec))
+        if (e.path().filename().string().starts_with("bink2w64.dll.old")) fs::remove(e.path(), ec);
+    if (!fs::exists(dest, ec)) return;
+    fs::path old = dest;
+    old += std::format(".old{}", GetTickCount64());
+    if (fs::rename(dest, old, ec); !ec) fs::remove(old, ec);
+#endif
+}
+}  // namespace
 
 std::optional<std::string> dll_path() {
     if (const char* e = std::getenv("QUILLREEL_BINK2_DLL"); e && *e) return std::string(e);
@@ -173,7 +251,7 @@ std::expected<DllInfo, Error> check(const std::string& path) {
         return fail(ErrorKind::Unsupported,
                     std::format("{}: this is a 32-bit DLL; Quillreel needs the 64-bit bink2w64.dll", path));
     if (!info->is_dll) return fail(ErrorKind::Unsupported, std::format("{}: not a DLL", path));
-    auto api = load(path);
+    auto api = load(path, /*keep=*/false);
     if (!api) return std::unexpected(api.error());
     return DllInfo{path, file_version(path)};
 }
@@ -187,6 +265,7 @@ std::expected<DllInfo, Error> install(const std::string& path) {
     if (fs::exists(dest, ec) && fs::equivalent(path, dest, ec)) return DllInfo{dest, info->version};
     fs::create_directories(fs::path(dest).parent_path(), ec);
     if (ec) return fail(ErrorKind::Failed, std::format("cannot create {}: {}", fs::path(dest).parent_path().string(), ec.message()));
+    move_aside_installed();
     fs::copy_file(path, dest, fs::copy_options::overwrite_existing, ec);
     if (ec) return fail(ErrorKind::Failed, std::format("cannot copy to {}: {}", dest, ec.message()));
     fs::permissions(dest, fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read,
@@ -196,10 +275,14 @@ std::expected<DllInfo, Error> install(const std::string& path) {
 
 std::expected<bool, Error> uninstall() {
     std::error_code ec;
-    bool removed = std::filesystem::remove(installed_path(), ec);
+    const bool existed = std::filesystem::exists(installed_path(), ec);
+    move_aside_installed();
+    std::filesystem::remove(installed_path(), ec);
     if (ec) return fail(ErrorKind::Failed, std::format("cannot remove {}: {}", installed_path(), ec.message()));
-    return removed;
+    return existed;
 }
+
+constexpr std::align_val_t kAlign{64};  // frame buffer alignment
 
 struct Decoder::Impl {
     const Api* api = nullptr;
@@ -223,7 +306,7 @@ struct Decoder::Impl {
 
     ~Impl() {
         if (bink) api->close(bink);
-        for (void* b : buffers) std::free(b);
+        for (void* b : buffers) ::operator delete(b, kAlign);
     }
 };
 
@@ -261,7 +344,7 @@ std::expected<std::unique_ptr<Decoder>, Error> Decoder::open(const std::string& 
             bool chroma = k == 1 || k == 2;
             uint32_t w = chroma ? cw : yw, h = chroma ? ch : yh;
             uint32_t stride = (w + 63) & ~63u;
-            void* mem = std::aligned_alloc(64, static_cast<size_t>(stride) * h);
+            void* mem = ::operator new(static_cast<size_t>(stride) * h, kAlign, std::nothrow);
             if (!mem) return fail(ErrorKind::Failed, "out of memory");
             std::memset(mem, 0, static_cast<size_t>(stride) * h);
             impl->buffers.push_back(mem);

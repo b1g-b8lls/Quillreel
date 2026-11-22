@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "pe_image.h"
 
+// On Windows only probe() is used; the system loads the DLL (bink2_dll.cpp).
+#ifndef _WIN32
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 #include <cstring>
 #include <format>
@@ -63,6 +66,7 @@ std::expected<std::vector<uint8_t>, std::string> read_file(const std::string& pa
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(in), {});
 }
 
+#ifndef _WIN32
 // MSVC's __chkstk reads the stack limit from the Windows thread block
 // (mov r11, gs:[0x10]). There is no thread block here, so make it load 0
 // instead: the probe loop is then skipped, which is safe because Linux stacks
@@ -80,6 +84,7 @@ int patch_chkstk(uint8_t* p, size_t n) {
     }
     return count;
 }
+#endif
 
 }  // namespace
 
@@ -91,6 +96,7 @@ std::expected<ImageInfo, std::string> probe(const std::string& path) {
     return ImageInfo{h->machine, (h->characteristics & kFileDll) != 0, h->magic == kMagicPe32Plus};
 }
 
+#ifndef _WIN32
 std::expected<std::unique_ptr<Image>, std::string> Image::load(const std::string& path, const ImportResolver& resolve) {
     auto file = read_file(path);
     if (!file) return std::unexpected(file.error());
@@ -267,5 +273,7 @@ void* Image::export_address(std::string_view name) const {
     auto it = exports_.find(name);
     return it == exports_.end() ? nullptr : static_cast<uint8_t*>(base_) + it->second;
 }
+
+#endif
 
 }  // namespace quillreel::pe

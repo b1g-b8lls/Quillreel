@@ -1,6 +1,6 @@
 # Legal notes and repository rules
 
-Quillreel is a native Linux tool for working with Bink video files (.bik, .bk2):
+Quillreel is a Linux and Windows tool for working with Bink video files (.bik, .bk2):
 inspect, play and convert them. It is not affiliated with or endorsed by RAD
 Game Tools or Epic Games. "Bink" and "RAD Tools" are their trademarks and are
 used here only to name the file format Quillreel reads.
@@ -33,6 +33,13 @@ from Debian 13's packages and writes `Quillreel-<v>-x86_64.AppImage-sources.md`
 next to it: every bundled library's Debian source package and exact version,
 linked to its source on snapshot.debian.org. Publish that file with each
 AppImage release.
+
+The Windows installer bundles the same kinds of libraries, taken from MSYS2's
+UCRT64 packages (their FFmpeg is also built with GPL options, and adds more
+GPL/LGPL codec libraries such as x265). `packaging/build-windows.sh` writes
+`Quillreel-<v>-windows-x86_64-setup.exe-sources.md` next to it: the MSYS2
+package and exact version of every bundled DLL, linked to its source archive on
+repo.msys2.org. Publish that file with each installer release too.
 
 ## Not legal advice
 

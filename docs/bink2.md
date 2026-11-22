@@ -16,8 +16,9 @@ QUILLREEL_BINK2_DLL=/path/to/bink2w64.dll quillreel play movie.bk2   # use witho
 ```
 
 The installed copy lives at `$XDG_DATA_HOME/quillreel/bink2w64.dll` (default
-`~/.local/share/quillreel/`). Only the 64-bit DLL works; a 32-bit
-`bink2w32.dll` can't be loaded into a 64-bit process.
+`~/.local/share/quillreel/`) on Linux, and at
+`%LOCALAPPDATA%\Quillreel\bink2w64.dll` on Windows. Only the 64-bit DLL works; a
+32-bit `bink2w32.dll` can't be loaded into a 64-bit process.
 
 ## Tested DLLs
 
@@ -33,6 +34,11 @@ Wine (a test harness, not part of the repo). Checked on all frames of Intro.bk2
 (3944) and MainMenuLoop.bk2 (4028).
 
 ## How it works
+
+On Windows, Windows' own loader loads the DLL (`LoadLibraryExW`) and the two
+files below are not used: `bink2_dll.cpp` gets the same functions with
+`GetProcAddress` and drives them the same way. The rest of this section is about
+Linux.
 
 - **`src/pe_image.*`** is a minimal PE32+ loader. It maps the DLL, applies base
   relocations, binds imports and delay-load imports, and sets page protections.

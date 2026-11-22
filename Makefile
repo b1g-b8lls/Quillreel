@@ -12,11 +12,18 @@ QT_LIBEXEC := $(shell qmake6 -query QT_HOST_LIBEXECS 2>/dev/null || echo /usr/li
 MOC     ?= $(QT_LIBEXEC)/moc
 RCC     ?= $(QT_LIBEXEC)/rcc
 ICON_SIZES = 16 22 24 32 48 64 128 256 512
+comma := ,
+
+# Windows: cross-compiling with mingw-w64 (CXX=x86_64-w64-mingw32-g++ and
+# PKG_CONFIG pointing at Windows libraries; see packaging/build-windows.sh).
+WINDOWS := $(if $(findstring mingw32,$(shell $(CXX) -dumpmachine)),yes)
+WINDRES ?= $(patsubst %g++,%windres,$(CXX))
+VERSION := $(shell sed -n 's/.*kVersion = "\(.*\)".*/\1/p' src/main.cpp)
 
 CXXFLAGS ?= -O2 -g
-# -fPIC: Qt is built with reduced relocations and requires it. "override" keeps
-# these when CXXFLAGS is given on the make command line (e.g. CXXFLAGS=-O2).
-override CXXFLAGS += -std=c++23 -fPIC -Wall -Wextra -Wpedantic $(shell $(PKG_CONFIG) --cflags $(FFMPEG_PKGS))
+# -fPIC: Qt is built with reduced relocations and requires it (not on Windows).
+# "override" keeps these when CXXFLAGS is given on the make command line.
+override CXXFLAGS += -std=c++23 $(if $(WINDOWS),,-fPIC) -Wall -Wextra -Wpedantic $(shell $(PKG_CONFIG) --cflags $(FFMPEG_PKGS))
 FFMPEG_LIBS := $(shell $(PKG_CONFIG) --libs $(FFMPEG_PKGS))
 SDL_CFLAGS  := $(shell $(PKG_CONFIG) --cflags sdl3)
 SDL_LIBS    := $(shell $(PKG_CONFIG) --libs sdl3)
@@ -28,7 +35,9 @@ endif
 
 # Core: everything the CLI and the GUI share.
 CLI_ONLY  = src/main.cpp src/play_sdl.cpp
-CORE_SRC  = $(filter-out $(CLI_ONLY),$(wildcard src/*.cpp))
+# On Windows the system loads bink2w64.dll, so the Win32 stand-ins aren't needed.
+NOT_HERE  = $(if $(WINDOWS),src/win32_shim.cpp)
+CORE_SRC  = $(filter-out $(CLI_ONLY) $(NOT_HERE),$(wildcard src/*.cpp))
 CORE_OBJ  = $(CORE_SRC:src/%.cpp=$(BUILD)/%.o)
 CLI_OBJ   = $(CLI_ONLY:src/%.cpp=$(BUILD)/%.o)
 GUI_SRC   = $(wildcard src/gui/*.cpp)
@@ -37,8 +46,16 @@ GUI_OBJ   = $(GUI_SRC:src/gui/%.cpp=$(BUILD)/gui/%.o) $(GUI_MOC_H:src/gui/%.h=$(
             $(BUILD)/gui/qrc_icons.o
 HEADERS   = $(wildcard src/*.h)
 
-BIN     = $(BUILD)/quillreel
-GUI_BIN = $(BUILD)/quillreel-gui
+EXE     = $(if $(WINDOWS),.exe)
+BIN     = $(BUILD)/quillreel$(EXE)
+GUI_BIN = $(BUILD)/quillreel-gui$(EXE)
+
+ifeq ($(WINDOWS),yes)
+  # Icon, manifest (UTF-8 code page) and version information.
+  CLI_OBJ += $(BUILD)/quillreel_res.o
+  GUI_OBJ += $(BUILD)/quillreel-gui_res.o
+  GUI_LDFLAGS = -mwindows  # no console window
+endif
 
 all: $(BIN) $(if $(HAVE_QT),$(GUI_BIN))
 ifneq ($(HAVE_QT),yes)
@@ -49,7 +66,11 @@ $(BIN): $(CORE_OBJ) $(CLI_OBJ)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(SDL_LIBS)
 
 $(GUI_BIN): $(CORE_OBJ) $(GUI_OBJ)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(QT_LIBS)
+	$(CXX) $(LDFLAGS) $(GUI_LDFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(QT_LIBS)
+
+$(BUILD)/%_res.o: data/windows/quillreel.rc data/windows/quillreel.manifest data/windows/quillreel.ico | $(BUILD)
+	$(WINDRES) -I data/windows -DQR_VERSION='\"$(VERSION)\"' -DQR_VERSION_NUM=$(subst .,$(comma),$(VERSION)),0 \
+	    -DQR_FILE='\"$*.exe\"' -DQR_DESCRIPTION='\"Quillreel$(if $(findstring gui,$*), (GUI))\"' -o $@ $<
 
 $(BUILD)/play_sdl.o: src/play_sdl.cpp $(HEADERS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -c -o $@ $<
@@ -100,7 +121,7 @@ endif
 # and a .deb for Ubuntu 26.04.
 PACKAGE_IMAGE ?= quillreel-packaging
 MAINTAINER    ?= b1g-b8lls <b1gb8lls@tutamail.com>
-package: package-debian13 package-ubuntu26.04
+package: package-debian13 package-ubuntu26.04 package-windows
 
 package-debian13: BASE = docker.io/library/debian:trixie
 package-debian13: APPIMAGE = 1
@@ -112,6 +133,14 @@ package-debian13 package-ubuntu26.04:
 	podman run --rm -v "$(CURDIR)":/src:ro,Z -v "$(CURDIR)/dist":/out:Z -e BUILD_APPIMAGE=$(APPIMAGE) \
 	    -e MAINTAINER="$(MAINTAINER)" $(PACKAGE_IMAGE):$(@:package-%=%) /src/packaging/build.sh
 
+# The Windows installer, cross-compiled in a container (packaging/Containerfile.windows).
+# WINDOWS_STAGE=1 only puts the programs and their DLLs in dist/Quillreel-<v>-windows.
+package-windows:
+	podman build -f packaging/Containerfile.windows -t $(PACKAGE_IMAGE):windows packaging
+	mkdir -p dist
+	podman run --rm -v "$(CURDIR)":/src:ro,Z -v "$(CURDIR)/dist":/out:Z -e STAGE_ONLY=$(WINDOWS_STAGE) \
+	    $(PACKAGE_IMAGE):windows /src/packaging/build-windows.sh
+
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/quillreel $(DESTDIR)$(PREFIX)/bin/quillreel-gui \
 	      $(DESTDIR)$(PREFIX)/share/applications/quillreel.desktop
@@ -121,5 +150,5 @@ uninstall:
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all test install uninstall clean package package-debian13 package-ubuntu26.04
+.PHONY: all test install uninstall clean package package-debian13 package-ubuntu26.04 package-windows
 .SECONDARY:

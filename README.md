@@ -1,7 +1,7 @@
 # Quillreel
 
-A native Linux tool for Bink video files (.bik / .bk2): inspect, convert and play
-them. Built on FFmpeg and SDL3. Not affiliated with RAD Game Tools or Epic Games.
+A tool for Linux and Windows for Bink video files (.bik / .bk2): inspect, convert
+and play them. Built on FFmpeg and SDL3. Not affiliated with RAD Game Tools or Epic Games.
 See [docs/LEGAL.md](docs/LEGAL.md).
 
 ## Status
@@ -45,6 +45,11 @@ you can also build them with `make package` (see packaging/README.md).
 - **Other distros**: `chmod +x Quillreel-<version>-x86_64.AppImage` and run it. It
   opens the GUI; `./Quillreel-….AppImage convert …` (or `inspect`, `play`,
   `bink2`) runs the CLI.
+- **Windows 10 (1903 or later) and 11, 64-bit**: run
+  `Quillreel-<version>-windows-x86_64-setup.exe`. It adds Quillreel to the Start
+  menu and can open .bik/.bk2 files from Explorer. The command-line tool is
+  `quillreel.exe` in the install folder (`C:\Program Files\Quillreel`). The
+  Bink 2 DLL you install is kept in `%LOCALAPPDATA%\Quillreel`.
 
 The GUI follows the desktop's look: Plasma's theme on KDE, the GTK theme on
 GNOME and other GTK desktops, and dark mode. None of the packages include Bink 2
@@ -72,6 +77,9 @@ sudo make install            # installs quillreel and quillreel-gui (PREFIX=/usr
 ```
 
 Run `quillreel --help` for every option and the player's keys.
+
+The Windows build is cross-compiled from Linux with mingw-w64 against MSYS2's
+libraries: `make package-windows` (needs podman; see packaging/README.md).
 
 ## Test
 

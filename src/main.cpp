@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <signal.h>
 #include <unistd.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -144,7 +151,7 @@ int run_inspect(const std::vector<std::string>& args) {
     return exit_code;
 }
 
-// Ctrl+C (and SIGTERM/SIGHUP) during convert: ask the converter to stop, which
+// Ctrl+C (and SIGTERM/SIGHUP, or Ctrl+Break on Windows) during convert: ask the converter to stop, which
 // deletes the partial output. A second signal ends the process at once.
 std::atomic<bool> g_cancel{false};
 static_assert(std::atomic<bool>::is_always_lock_free, "signal handler needs a lock-free flag");
@@ -157,10 +164,16 @@ extern "C" void on_cancel_signal(int sig) {
 }
 
 void catch_cancel_signals() {
+#ifdef _WIN32
+    // The C runtime resets a handler to SIG_DFL when it runs, so a second
+    // Ctrl+C ends the process as above.
+    for (int sig : {SIGINT, SIGTERM, SIGBREAK}) signal(sig, on_cancel_signal);
+#else
     struct sigaction sa {};
     sa.sa_handler = on_cancel_signal;
     sigemptyset(&sa.sa_mask);
     for (int sig : {SIGINT, SIGTERM, SIGHUP}) sigaction(sig, &sa, nullptr);
+#endif
 }
 
 std::string format_seconds(double s) {
@@ -419,6 +432,11 @@ int run_bink2(const std::vector<std::string>& args) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // argv and file names are UTF-8 (data/windows/quillreel.manifest); make the
+    // console show UTF-8 output too.
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     std::vector<std::string> args(argv + 1, argv + argc);
     if (args.empty()) return usage_error("no command given");
 

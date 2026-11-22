@@ -1,0 +1,32 @@
+// Windows resources for quillreel.exe and quillreel-gui.exe: icon, manifest and
+// version information. The Makefile defines QR_VERSION ("0.6.1"), QR_VERSION_NUM
+// (0,6,1,0), QR_FILE ("quillreel.exe") and QR_DESCRIPTION.
+#include <winver.h>
+
+1 ICON "quillreel.ico"
+1 24 "quillreel.manifest"  // 24 = RT_MANIFEST, 1 = for the executable
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION QR_VERSION_NUM
+PRODUCTVERSION QR_VERSION_NUM
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", QR_DESCRIPTION
+            VALUE "FileVersion", QR_VERSION
+            VALUE "InternalName", QR_FILE
+            VALUE "OriginalFilename", QR_FILE
+            VALUE "ProductName", "Quillreel"
+            VALUE "ProductVersion", QR_VERSION
+            VALUE "LegalCopyright", "GPL-3.0-or-later"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

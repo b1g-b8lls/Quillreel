@@ -479,8 +479,8 @@ void MainWindow::remove_selected() {
 
 void MainWindow::show_about() {
     QMessageBox::about(this, tr("About Quillreel"),
-                       tr("<p><b>Quillreel</b></p><p>Inspect, play and convert Bink video files (.bik, .bk2) on "
-                          "Linux. Built on FFmpeg and Qt.</p><p>Not affiliated with RAD Game Tools or Epic Games."
+                       tr("<p><b>Quillreel</b></p><p>Inspect, play and convert Bink video files (.bik, .bk2). "
+                          "Built on FFmpeg and Qt.</p><p>Not affiliated with RAD Game Tools or Epic Games."
                           "</p><p>License: GPL-3.0-or-later</p>"));
 }
 
