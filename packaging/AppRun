@@ -1,0 +1,27 @@
+#!/bin/sh
+# Quillreel AppImage entry point: the GUI by default, the CLI when the first
+# argument is one of its commands (or when started through a link named
+# "quillreel").
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Fit the desktop, as Qt does for native installs: the GTK3 theme on GTK-based
+# desktops (colours, fonts, icons, GTK file dialogs), the desktop portal theme on
+# KDE/LXQt (Plasma's file dialogs, light/dark). The system's own Qt plugins
+# can't be loaded into the bundled Qt, so these come with the AppImage.
+if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
+    case ":$(printf '%s' "${XDG_CURRENT_DESKTOP:-$DESKTOP_SESSION}" | tr '[:lower:]' '[:upper:]'):" in
+        *:GNOME:*|*:UNITY:*|*:X-CINNAMON:*|*:CINNAMON:*|*:MATE:*|*:XFCE:*|*:BUDGIE*|*:PANTHEON:*|*:LXDE:*)
+            export QT_QPA_PLATFORMTHEME=gtk3 ;;
+        *:KDE:*|*:LXQT:*)
+            export QT_QPA_PLATFORMTHEME=xdgdesktopportal ;;
+    esac
+fi
+case "$1" in
+    inspect|convert|play|bink2|help|--help|-h|--version)
+        exec "$HERE/usr/bin/quillreel" "$@" ;;
+esac
+case "$(basename "${ARGV0:-$0}")" in
+    quillreel|quillreel-cli)
+        exec "$HERE/usr/bin/quillreel" "$@" ;;
+esac
+exec "$HERE/usr/bin/quillreel-gui" "$@"

@@ -4,6 +4,8 @@
 #include <QCommandLineParser>
 #include <QDialog>
 #include <QIcon>
+#include <QPalette>
+#include <QStyleHints>
 #include <QKeySequence>
 #include <QTimer>
 #include <QTreeWidget>
@@ -21,6 +23,52 @@ extern "C" {
 #include "main_window.h"
 #include "player_widget.h"
 
+namespace {
+
+// Dark mode: the desktop may ask for dark (the colour-scheme portal setting,
+// GNOME's dark style) while the Qt theme in use only has light colours, e.g. the
+// portal or GTK3 theme with Qt's Fusion style. Then use a dark palette. Themes
+// that supply their own dark colours (KDE Plasma, a dark GTK theme) are left alone.
+void follow_color_scheme(QApplication& app) {
+    static bool overridden = false;
+    if (overridden) {
+        app.setPalette(QPalette());  // an empty palette hands colours back to the theme
+        overridden = false;
+    }
+    const bool want_dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+    const bool theme_light = QApplication::palette().color(QPalette::Window).lightness() > 128;
+    if (!want_dark || !theme_light) return;
+    overridden = true;
+    QPalette p;
+    const QColor window(45, 45, 48), base(30, 30, 32), text(230, 230, 230), disabled(130, 130, 130);
+    const QColor accent(52, 132, 228);
+    p.setColor(QPalette::Window, window);
+    p.setColor(QPalette::WindowText, text);
+    p.setColor(QPalette::Base, base);
+    p.setColor(QPalette::AlternateBase, window);
+    p.setColor(QPalette::ToolTipBase, base);
+    p.setColor(QPalette::ToolTipText, text);
+    p.setColor(QPalette::PlaceholderText, disabled);
+    p.setColor(QPalette::Text, text);
+    p.setColor(QPalette::Button, window);
+    p.setColor(QPalette::ButtonText, text);
+    p.setColor(QPalette::BrightText, QColor(255, 90, 90));
+    p.setColor(QPalette::Link, accent.lighter(130));
+    p.setColor(QPalette::Highlight, accent);
+    p.setColor(QPalette::HighlightedText, Qt::white);
+    p.setColor(QPalette::Light, window.lighter(150));
+    p.setColor(QPalette::Midlight, window.lighter(125));
+    p.setColor(QPalette::Mid, window.darker(120));
+    p.setColor(QPalette::Dark, window.darker(150));
+    p.setColor(QPalette::Shadow, Qt::black);
+    for (auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText, QPalette::HighlightedText})
+        p.setColor(QPalette::Disabled, role, disabled);
+    p.setColor(QPalette::Disabled, QPalette::Highlight, window.lighter(130));
+    app.setPalette(p);
+}
+
+}  // namespace
+
 using quillreel::gui::ConvertDialog;
 using quillreel::gui::MainWindow;
 
@@ -35,6 +83,9 @@ int main(int argc, char** argv) {
     QIcon builtin;
     for (int s : {16, 22, 24, 32, 48, 64, 128, 256}) builtin.addFile(QString(":/icons/quillreel-%1.png").arg(s));
     QApplication::setWindowIcon(QIcon::fromTheme("quillreel", builtin));
+    follow_color_scheme(app);
+    QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, &app,
+                     [&app] { follow_color_scheme(app); });
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Inspect and play Bink video files (.bik, .bk2).");

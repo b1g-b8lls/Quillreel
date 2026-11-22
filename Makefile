@@ -14,8 +14,9 @@ RCC     ?= $(QT_LIBEXEC)/rcc
 ICON_SIZES = 16 22 24 32 48 64 128 256 512
 
 CXXFLAGS ?= -O2 -g
-# -fPIC: Qt is built with reduced relocations and requires it.
-CXXFLAGS += -std=c++23 -fPIC -Wall -Wextra -Wpedantic $(shell $(PKG_CONFIG) --cflags $(FFMPEG_PKGS))
+# -fPIC: Qt is built with reduced relocations and requires it. "override" keeps
+# these when CXXFLAGS is given on the make command line (e.g. CXXFLAGS=-O2).
+override CXXFLAGS += -std=c++23 -fPIC -Wall -Wextra -Wpedantic $(shell $(PKG_CONFIG) --cflags $(FFMPEG_PKGS))
 FFMPEG_LIBS := $(shell $(PKG_CONFIG) --libs $(FFMPEG_PKGS))
 SDL_CFLAGS  := $(shell $(PKG_CONFIG) --cflags sdl3)
 SDL_LIBS    := $(shell $(PKG_CONFIG) --libs sdl3)
@@ -94,6 +95,23 @@ ifeq ($(HAVE_QT),yes)
 	install -Dm644 data/icons/src/quillreel.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/quillreel.svg
 endif
 
+# Release packages built in containers with podman (see packaging/README.md),
+# written to dist/: a .deb for Debian 13 plus the AppImage (built on Debian 13),
+# and a .deb for Ubuntu 26.04.
+PACKAGE_IMAGE ?= quillreel-packaging
+MAINTAINER    ?= b1g-b8lls <b1gb8lls@tutamail.com>
+package: package-debian13 package-ubuntu26.04
+
+package-debian13: BASE = docker.io/library/debian:trixie
+package-debian13: APPIMAGE = 1
+package-ubuntu26.04: BASE = docker.io/library/ubuntu:26.04
+package-ubuntu26.04: APPIMAGE = 0
+package-debian13 package-ubuntu26.04:
+	podman build --build-arg BASE=$(BASE) -t $(PACKAGE_IMAGE):$(@:package-%=%) packaging
+	mkdir -p dist
+	podman run --rm -v "$(CURDIR)":/src:ro,Z -v "$(CURDIR)/dist":/out:Z -e BUILD_APPIMAGE=$(APPIMAGE) \
+	    -e MAINTAINER="$(MAINTAINER)" $(PACKAGE_IMAGE):$(@:package-%=%) /src/packaging/build.sh
+
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/quillreel $(DESTDIR)$(PREFIX)/bin/quillreel-gui \
 	      $(DESTDIR)$(PREFIX)/share/applications/quillreel.desktop
@@ -103,5 +121,5 @@ uninstall:
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all test install uninstall clean
+.PHONY: all test install uninstall clean package package-debian13 package-ubuntu26.04
 .SECONDARY:

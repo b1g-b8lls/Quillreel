@@ -1,5 +1,6 @@
 build/
 build-*/
+dist/
 # Sample media is never committed (see docs/LEGAL.md).
 *.bik
 *.bk2

@@ -35,6 +35,20 @@ quillreel bink2 remove                                        # disables it agai
 After that, `play` and `convert` handle .bk2 video exactly like RAD's decoder does.
 Quillreel loads the DLL directly; Wine is not needed. Details: [docs/bink2.md](docs/bink2.md).
 
+## Install
+
+Ready-made packages (built with `make package`, see packaging/README.md):
+
+- **Debian 13**: `sudo apt install ./quillreel_<version>-1~deb13_amd64.deb`
+- **Ubuntu 26.04**: `sudo apt install ./quillreel_<version>-1~ubuntu26.04_amd64.deb`
+- **Other distros**: `chmod +x Quillreel-<version>-x86_64.AppImage` and run it. It
+  opens the GUI; `./Quillreel-….AppImage convert …` (or `inspect`, `play`,
+  `bink2`) runs the CLI.
+
+The GUI follows the desktop's look: Plasma's theme on KDE, the GTK theme on
+GNOME and other GTK desktops, and dark mode. None of the packages include Bink 2
+video support; add RAD's `bink2w64.dll` yourself (see above).
+
 ## Build
 
 Needs g++ with C++23, make, pkg-config, SDL3 and the FFmpeg development libraries

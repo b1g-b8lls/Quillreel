@@ -22,6 +22,16 @@ GPL-3.0-or-later (see `LICENSE`). The FFmpeg build that Arch Linux ships is
 configured with `--enable-gpl --enable-version3`, so a binary linked against it
 is covered by GPLv3 anyway.
 
+## Binary packages
+
+The `.deb` packages contain only Quillreel and depend on the distribution's own
+FFmpeg, Qt and SDL. The AppImage bundles third-party libraries: Qt (LGPL-3.0),
+FFmpeg (built with GPL options), x264 (GPL-2.0+), SDL3 (zlib) and their
+dependencies. Whoever distributes the AppImage must make the corresponding source
+code of the GPL/LGPL parts available, e.g. by linking the Debian 13 source
+packages of the exact versions bundled (`apt-get source` in the build container)
+next to the release. `packaging/build.sh` builds them from Debian 13's archive.
+
 ## Not legal advice
 
 The points below still need to be confirmed. None of this is legal advice.
