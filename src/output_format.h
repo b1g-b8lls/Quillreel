@@ -15,7 +15,14 @@ struct OutputFormat {
     std::vector<std::string> audio_encoders;  // in order of preference; empty = no audio
     bool multi_audio = false;                 // can hold more than one audio track
     bool image_sequence = false;              // path must contain a frame number pattern
+    std::string description;                  // for menus, e.g. "MP4 (H.264 video, AAC audio)"
 };
+
+// Every supported format, in menu order.
+const std::vector<OutputFormat>& output_formats();
+
+// Whether this FFmpeg build has an encoder for each kind of stream the format holds.
+bool output_format_available(const OutputFormat& f);
 
 std::optional<OutputFormat> output_format_for(const std::string& path);
 

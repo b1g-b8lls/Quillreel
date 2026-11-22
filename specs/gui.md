@@ -1,8 +1,8 @@
 # Design spec: `quillreel-gui`
 
-Status: first milestone (file browser and player) in v0.4.0, in `src/gui/`.
-This is our own design; `behavior-observed.md` has no notes on RADTools' window
-yet. Convert and Bink 2 setup are not in the GUI yet; see "Next".
+Status: file browser and player in v0.4.0; convert dialog and Bink 2 setup in
+v0.5.0. Code in `src/gui/`. This is our own design; `behavior-observed.md` has no
+notes on RADTools' window yet.
 
 ## Build
 
@@ -33,11 +33,56 @@ the list. Folders are searched recursively for `.bik`/`.bk2`.
   inspect data, e.g. "Track 1 (48000 Hz stereo)"), mute, volume, loop and
   fullscreen.
 - **Info panel** (bottom): `quillreel inspect` text for the selected files.
-- **Menus**: File (Open Files, Open Folder, Clear List, Quit), Playback, View
-  (Fullscreen, show/hide the list and info panel), Help (Bink 2 Video status,
-  About).
+- **Menus**: File (Open Files, Open Folder, Convert (Ctrl+E), Clear List, Quit),
+  Playback, View (Fullscreen, show/hide the list and info panel), Help (Bink 2
+  Video, About). Right-clicking the list gives Play, Convert, Open Containing
+  Folder and Remove from List.
 - Window size and splitter positions are remembered (QSettings,
   `~/.config/Quillreel/Quillreel.conf`), and so is the last folder opened.
+
+## Convert dialog
+
+File > Convert converts the selected files, or every listed file if none are
+selected, with the same code as `quillreel convert`. They are converted one after
+another on a worker thread.
+
+- **Format**: every format the CLI supports, described ("MP4 (H.264 video, AAC
+  audio)"). Formats whose encoder this FFmpeg build lacks are shown but disabled.
+- **Save to**: a folder, created if needed. Output names are the input name with
+  the new extension, made unique within the batch ("Intro (2).mp4"). A PNG
+  sequence gets a folder per file (`Intro/00001.png`, …).
+- **Video**: include or leave out. **Audio**: first track, all tracks (formats
+  that hold several), a track number, or none. **Replace existing files**: off
+  by default, so existing outputs are skipped.
+- A plan is made per file before starting, and anything adjusted or skipped is
+  noted:
+  - Bink 2 without the DLL converts its audio only; for a video-only format
+    (PNG, Y4M) it is skipped.
+  - "All tracks" in a one-track format gives track 0.
+  - A track number the file doesn't have, or an existing output, means the file
+    is skipped.
+  The dialog warns about these before starting, too.
+- Progress bars for the current file and the batch, a log line per file
+  (✓ converted with what was written, – skipped/cancelled with why, ✗ failed
+  with the error), then a summary. Open Folder opens the output folder.
+- **Cancel** stops after the current packet. The file being written is deleted;
+  frames already written by a PNG sequence stay. Closing the dialog while it runs
+  asks first. Settings are remembered.
+
+## Bink 2 Video dialog
+
+Help > Bink 2 Video (also the "Enable Bink 2 Video…" button the player shows for
+a .bk2 file without the DLL). It shows whether Bink 2 video is enabled, the
+DLL's path and version, and whether `QUILLREEL_BINK2_DLL` overrides the
+installed copy.
+
+- **Install DLL… / Replace DLL…** picks a file and runs the same check and copy
+  as `quillreel bink2 install`. Errors (32-bit DLL, not a Bink DLL, unknown
+  layout) are shown as they are.
+- **Remove** asks first, then deletes the installed copy.
+- After either one, every listed file is read again (Type switches between
+  "Bink 2" and "Bink 2 (audio only)"), and a playing .bk2 is reopened at the same
+  position, with or without video.
 
 ## Keys
 
@@ -72,17 +117,21 @@ again from the beginning. Loop restarts instead.
 volume 0) using hidden options: `--test-play FILE`, `--test-keys
 1.0:Right,2.0:Space` (triggers the menu action with that shortcut),
 `--test-quit-after S`, `--test-dump-list`, `--report`, `--test-silent`,
-`--test-screenshot S:PATH` and `--allow-non-bink`. It covers real-time
-playback, pause, seeking back, track switching, looping, the file list (real
-samples and a broken file), Bink 1 playback, and Bink 2 with and without the DLL.
+`--test-screenshot S:PATH`, `--test-convert EXT:DIR[,options]`,
+`--test-convert-cancel-after S`, `--test-bink2 install:PATH|remove`,
+`--test-dialog convert|bink2` and `--allow-non-bink`. It covers:
+- real-time playback, pause, seeking back, track switching and looping;
+- the file list (real samples and a broken file);
+- Bink 1 playback, and Bink 2 with and without the DLL;
+- conversions through the dialog: formats, track choice, skipping and
+  replacing existing files, missing tracks, cancelling, and Bink 2 with and
+  without the DLL;
+- installing and removing the DLL, with the list refreshing.
 Offscreen Qt has no OpenGL, so the picture itself is checked only by hand or with
 `--test-screenshot` on a real display.
 
 ## Next
 
-- Convert dialog: format, tracks, output folder, progress, batch over the
-  selected files.
-- Bink 2 page: install or remove the DLL from the GUI (today: Help > Bink 2 Video
-  shows the status and the command).
+- Quality options for conversion (CRF, size) once the CLI has them.
 - Open questions: should the list show more (bit rate, keyframes)? Thumbnails?
   Remember the file list between runs?

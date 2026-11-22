@@ -8,6 +8,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QSlider>
 #include <QStackedWidget>
 #include <QStyle>
@@ -68,24 +69,36 @@ PlayerWidget::PlayerWidget(QWidget* parent) : QWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
 
     view_ = new VideoView(this);
-    note_ = new QLabel(this);
+    // Shown instead of the video: a message, and for Bink 2 without the DLL a
+    // button that opens Help > Bink 2 Video.
+    note_page_ = new QWidget(this);
+    note_page_->setAutoFillBackground(true);
+    QPalette pal = note_page_->palette();
+    pal.setColor(QPalette::Window, Qt::black);
+    pal.setColor(QPalette::WindowText, QColor(220, 220, 220));
+    note_page_->setPalette(pal);
+    note_ = new QLabel(note_page_);
     note_->setAlignment(Qt::AlignCenter);
     note_->setWordWrap(true);
     note_->setMargin(24);
-    note_->setAutoFillBackground(true);
-    QPalette pal = note_->palette();
-    pal.setColor(QPalette::Window, Qt::black);
-    pal.setColor(QPalette::WindowText, QColor(220, 220, 220));
-    note_->setPalette(pal);
+    enable_bink2_ = new QPushButton(tr("Enable Bink 2 Video…"), note_page_);
+    enable_bink2_->setFocusPolicy(Qt::NoFocus);
+    auto* note_layout = new QVBoxLayout(note_page_);
+    note_layout->addStretch();
+    note_layout->addWidget(note_);
+    note_layout->addWidget(enable_bink2_, 0, Qt::AlignHCenter);
+    note_layout->addStretch();
+    connect(enable_bink2_, &QPushButton::clicked, this, &PlayerWidget::bink2_setup_requested);
     stack_ = new QStackedWidget(this);
     stack_->addWidget(view_);
-    stack_->addWidget(note_);
+    stack_->addWidget(note_page_);
     show_note(tr("Open a Bink file to play it.\nDouble-click a file in the list, or use File > Open."));
 
     play_ = tool_button(this, QStyle::SP_MediaPlay, tr("Play / pause (Space)"));
     restart_ = tool_button(this, QStyle::SP_MediaSkipBackward, tr("Restart (Home)"));
     position_ = new SeekSlider(Qt::Horizontal, this);
     position_->setFocusPolicy(Qt::NoFocus);
+    position_->setMinimumWidth(120);
     position_->setToolTip(tr("Position (Left/Right: 5 s, with Shift: 30 s)"));
     time_ = new QLabel(format_time(0) + " / " + format_time(0), this);
     time_->setMinimumWidth(time_->fontMetrics().horizontalAdvance(" 0:00:00 / 0:00:00 "));
@@ -150,9 +163,10 @@ PlayerWidget::PlayerWidget(QWidget* parent) : QWidget(parent) {
 
 PlayerWidget::~PlayerWidget() { close_media(); }
 
-void PlayerWidget::show_note(const QString& text) {
+void PlayerWidget::show_note(const QString& text, bool offer_bink2) {
     note_->setText(text);
-    stack_->setCurrentWidget(note_);
+    enable_bink2_->setVisible(offer_bink2);
+    stack_->setCurrentWidget(note_page_);
 }
 
 void PlayerWidget::close_media() {
@@ -169,11 +183,12 @@ void PlayerWidget::close_media() {
     update_controls(true);
 }
 
-bool PlayerWidget::open(const QString& path, const QStringList& track_labels, bool allow_non_bink) {
+bool PlayerWidget::open(const QString& path, const QStringList& track_labels, bool allow_non_bink, double start) {
     close_media();
     PlayOptions opts;
     opts.input = path.toStdString();
     opts.allow_non_bink = allow_non_bink;
+    opts.start = start;
     auto src = MediaSource::open(opts);
     const QString name = QFileInfo(path).fileName();
     if (!src) {
@@ -196,6 +211,11 @@ bool PlayerWidget::open(const QString& path, const QStringList& track_labels, bo
     if (setup_.has_video) {
         view_->set_sample_aspect(setup_.sample_aspect);
         stack_->setCurrentWidget(view_);
+    } else if (setup_.bink2_needs_dll) {
+        show_note(tr("%1\n\nBink 2 video is not enabled, so only the audio plays.\n"
+                     "Quillreel needs RAD's bink2w64.dll from a game that uses Bink 2.")
+                      .arg(name),
+                  true);
     } else {
         QString why = setup_.video_note.empty() ? tr("audio only") : QString::fromStdString(setup_.video_note);
         show_note(tr("%1\n\n%2").arg(name, why));
@@ -208,7 +228,7 @@ bool PlayerWidget::open(const QString& path, const QStringList& track_labels, bo
     updating_ = false;
 
     clock_ = SyncClock{};
-    clock_.set(0);
+    clock_.set(start);
     set_paused(false);
     apply_volume();
     src_->start(sink_.get());

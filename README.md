@@ -12,7 +12,7 @@ See [docs/LEGAL.md](docs/LEGAL.md).
 | `convert` | done: mp4/mov/mkv/webm, raw .y4m, PNG sequence, wav/flac/m4a/ogg/opus/mp3/mka |
 | `play` | done: window with sound, seeking, audio track switching, looping |
 | `bink2` | done: enables Bink 2 video once you provide RAD's decoder (see below) |
-| GUI (`quillreel-gui`) | first milestone: file browser, info panel, built-in player (Qt 6). Convert comes next |
+| GUI (`quillreel-gui`) | done: file browser, info panel, built-in player, convert dialog, Bink 2 DLL setup (Qt 6) |
 
 ### Bink 2 video: not supported until you provide the decoder
 
@@ -23,6 +23,8 @@ converted.
 
 To enable Bink 2 video, provide RAD's own decoder, `bink2w64.dll`, from a game that
 uses Bink 2 (tested: Fallout 4, GTA V Enhanced):
+
+In the GUI: Help > Bink 2 Video > Install DLL…. Or from the command line:
 
 ```sh
 quillreel bink2 install "/path/to/Fallout 4/bink2w64.dll"   # enables .bk2 video

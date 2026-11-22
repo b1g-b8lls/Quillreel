@@ -2,6 +2,8 @@
 #include "main_window.h"
 
 #include <QAction>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QCloseEvent>
 #include <QDir>
 #include <QDirIterator>
@@ -11,6 +13,7 @@
 #include <QFontDatabase>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
@@ -25,7 +28,9 @@
 #include <format>
 #include <sstream>
 
+#include "bink2_dialog.h"
 #include "bink2_dll.h"
+#include "convert_dialog.h"
 #include "player_widget.h"
 #include "report.h"
 
@@ -114,6 +119,9 @@ MainWindow::MainWindow(const GuiOptions& opts, QWidget* parent) : QMainWindow(pa
     connect(player_, &PlayerWidget::message, this, [this](const QString& m) { statusBar()->showMessage(m, 4000); });
     connect(player_, &PlayerWidget::fullscreen_requested, this, &MainWindow::toggle_fullscreen);
     connect(player_, &PlayerWidget::loop_changed, loop_action_, &QAction::setChecked);
+    connect(player_, &PlayerWidget::bink2_setup_requested, this, &MainWindow::show_bink2_dialog);
+    files_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(files_, &QWidget::customContextMenuRequested, this, &MainWindow::show_context_menu);
 
     QSettings settings;
     restoreGeometry(settings.value("window/geometry").toByteArray());
@@ -133,6 +141,10 @@ void MainWindow::build_menus() {
                     &MainWindow::open_files);
     file->addAction(QIcon::fromTheme("folder-open"), tr("Open &Folder…"), QKeySequence(tr("Ctrl+Shift+O")), this,
                     &MainWindow::open_folder);
+    file->addSeparator();
+    file->addAction(QIcon::fromTheme("document-save-as"), tr("&Convert…"), QKeySequence(tr("Ctrl+E")), this,
+                    &MainWindow::convert_selected);
+    file->addSeparator();
     file->addAction(tr("&Clear List"), this, &MainWindow::clear_list);
     file->addSeparator();
     file->addAction(QIcon::fromTheme("application-exit"), tr("&Quit"), QKeySequence::Quit, this, &QWidget::close);
@@ -182,7 +194,7 @@ void MainWindow::build_menus() {
     connect(show_info_, &QAction::toggled, info_, &QWidget::setVisible);
 
     QMenu* help = menuBar()->addMenu(tr("&Help"));
-    help->addAction(tr("&Bink 2 Video…"), this, &MainWindow::show_bink2_status);
+    help->addAction(tr("&Bink 2 Video…"), this, &MainWindow::show_bink2_dialog);
     help->addAction(tr("&About Quillreel"), this, &MainWindow::show_about);
 }
 
@@ -217,16 +229,7 @@ void MainWindow::add_paths(const QStringList& paths) {
         item->setData(kName, kPathRole, path);
         item->setText(kType, tr("reading…"));
         items_.insert(path, item);
-        ++pending_;
-        QPointer<MainWindow> self(this);
-        QThreadPool::globalInstance()->start([self, path] {
-            auto r = std::make_shared<Result>(inspect_file(path.toStdString()));
-            QMetaObject::invokeMethod(
-                self.data(), [self, path, r] {
-                    if (self) self->set_result(path, *r);
-                },
-                Qt::QueuedConnection);
-        });
+        scan(path);
     }
     files_->setSortingEnabled(true);
     if (pending_) scan_label_->setText(tr("Reading %n file(s)…", nullptr, pending_));
@@ -238,6 +241,20 @@ void MainWindow::add_paths(const QStringList& paths) {
         statusBar()->showMessage(tr("No Bink files (.bik, .bk2) found"), 4000);
     }
     if (!pending_) emit scan_finished();
+}
+
+// Reads one file in the background (the same as `quillreel inspect`).
+void MainWindow::scan(const QString& path) {
+    ++pending_;
+    QPointer<MainWindow> self(this);
+    QThreadPool::globalInstance()->start([self, path] {
+        auto r = std::make_shared<Result>(inspect_file(path.toStdString()));
+        QMetaObject::invokeMethod(
+            self.data(), [self, path, r] {
+                if (self) self->set_result(path, *r);
+            },
+            Qt::QueuedConnection);
+    });
 }
 
 void MainWindow::set_result(const QString& path, const Result& r) {
@@ -258,6 +275,7 @@ void MainWindow::set_result(const QString& path, const Result& r) {
             item->setForeground(kName, palette().brush(QPalette::Disabled, QPalette::Text));
         } else {
             const FileInfo& f = *r;
+            item->setToolTip(kType, QString());
             QString type = f.video ? QString::fromStdString(f.video->generation) : tr("audio");
             if (f.video && f.video->generation == "Bink 2" && f.video->decoder.empty()) {
                 type += tr(" (audio only)");
@@ -378,20 +396,85 @@ void MainWindow::toggle_fullscreen() {
     player_->setFocus();
 }
 
-void MainWindow::show_bink2_status() {
-    QString text;
-    if (auto path = bink2::dll_path()) {
-        const QString version = QString::fromStdString(bink2::file_version(*path));
-        text = tr("<p><b>Bink 2 video is enabled.</b></p><p>Decoder: %1<br>Version: %2</p>")
-                   .arg(QString::fromStdString(*path).toHtmlEscaped(), version.isEmpty() ? tr("unknown") : version);
-    } else {
-        text = tr("<p><b>Bink 2 video is not enabled.</b></p>"
-                  "<p>Quillreel does not include a Bink 2 video decoder. Until you provide RAD's "
-                  "<tt>bink2w64.dll</tt> (64-bit) from a game that uses Bink 2, .bk2 files can be inspected "
-                  "and their audio played, but not their video.</p>"
-                  "<p>To enable it, run:<br><tt>quillreel bink2 install /path/to/bink2w64.dll</tt></p>");
+void MainWindow::show_bink2_dialog() {
+    Bink2Dialog dialog(this);
+    connect(&dialog, &Bink2Dialog::changed, this, &MainWindow::refresh_bink2);
+    dialog.exec();
+}
+
+void MainWindow::refresh_bink2() {
+    for (auto it = items_.begin(); it != items_.end(); ++it) {
+        it.value()->setText(1, tr("reading…"));
+        scan(it.key());
     }
-    QMessageBox::information(this, tr("Bink 2 Video"), text);
+    if (pending_) scan_label_->setText(tr("Reading %n file(s)…", nullptr, pending_));
+    // A playing .bk2 switches between audio only and video.
+    const QString cur = player_->current_path();
+    if (!cur.isEmpty() && cur.endsWith(".bk2", Qt::CaseInsensitive)) {
+        const double at = player_->position();
+        player_->open(cur, track_labels(cur), opts_.allow_non_bink, at);
+    }
+    statusBar()->showMessage(bink2::dll_path() ? tr("Bink 2 video enabled") : tr("Bink 2 video disabled"), 4000);
+}
+
+void MainWindow::select_all() { files_->selectAll(); }
+
+ConvertDialog* MainWindow::make_convert_dialog() {
+    QList<QTreeWidgetItem*> sel = files_->selectedItems();
+    if (sel.isEmpty())
+        for (int i = 0; i < files_->topLevelItemCount(); ++i) sel << files_->topLevelItem(i);
+    std::vector<ConvertItem> items;
+    for (QTreeWidgetItem* item : sel) {
+        const QString path = item->data(kName, kPathRole).toString();
+        ConvertItem ci{path, std::nullopt};
+        if (auto it = results_.find(path); it != results_.end() && **it) ci.info = ***it;
+        items.push_back(std::move(ci));
+    }
+    if (items.empty()) return nullptr;
+    return new ConvertDialog(std::move(items), opts_.allow_non_bink, this);
+}
+
+void MainWindow::convert_selected() {
+    if (pending_) {
+        statusBar()->showMessage(tr("Still reading files; try again in a moment"), 3000);
+        return;
+    }
+    ConvertDialog* d = make_convert_dialog();
+    if (!d) {
+        QMessageBox::information(this, tr("Convert"), tr("Add some Bink files first (File > Open)."));
+        return;
+    }
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    d->open();
+}
+
+void MainWindow::show_context_menu(const QPoint& pos) {
+    QTreeWidgetItem* item = files_->itemAt(pos);
+    if (!item) return;
+    if (!item->isSelected()) {
+        files_->clearSelection();
+        item->setSelected(true);
+    }
+    const QString path = item->data(kName, kPathRole).toString();
+    QMenu menu(this);
+    menu.addAction(QIcon::fromTheme("media-playback-start"), tr("&Play"), this, [this, path] { play(path); });
+    menu.addAction(QIcon::fromTheme("document-save-as"), tr("&Convert…"), this, &MainWindow::convert_selected);
+    menu.addSeparator();
+    menu.addAction(QIcon::fromTheme("folder-open"), tr("Open Containing &Folder"), this, [path] {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+    });
+    menu.addAction(QIcon::fromTheme("list-remove"), tr("&Remove from List"), this, &MainWindow::remove_selected);
+    menu.exec(files_->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::remove_selected() {
+    for (QTreeWidgetItem* item : files_->selectedItems()) {
+        const QString path = item->data(kName, kPathRole).toString();
+        items_.remove(path);
+        results_.remove(path);
+        delete item;
+    }
+    show_selected_info();
 }
 
 void MainWindow::show_about() {

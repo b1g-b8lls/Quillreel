@@ -15,6 +15,7 @@
 
 class QComboBox;
 class QLabel;
+class QPushButton;
 class QSlider;
 class QStackedWidget;
 class QToolButton;
@@ -39,11 +40,14 @@ public:
 
     // Opens a file and starts playing it (or shows why it can't). track_labels
     // name the audio tracks in the track menu; numbers are used if empty.
-    bool open(const QString& path, const QStringList& track_labels = {}, bool allow_non_bink = false);
+    bool open(const QString& path, const QStringList& track_labels = {}, bool allow_non_bink = false,
+              double start = 0);
     void close_media();
     void set_track_labels(const QStringList& labels);  // renames the track menu entries
     bool has_media() const { return src_ != nullptr; }
     QString current_path() const { return path_; }
+    double position() const { return clock_.now(); }
+    bool showing_video() const { return src_ && setup_.has_video; }
     PlaybackStats stats() const;  // of the current file, or the last one if closed
 
 public slots:
@@ -58,6 +62,7 @@ public slots:
 
 signals:
     void fullscreen_requested();
+    void bink2_setup_requested();  // the "Enable Bink 2 Video" button
     void loop_changed(bool loop);
     void playback_finished();  // reached the end without looping
     void message(const QString& text);
@@ -71,10 +76,12 @@ private:
     void update_controls(bool force = false);
     void apply_volume();
     void set_paused(bool paused);
-    void show_note(const QString& text);
+    void show_note(const QString& text, bool offer_bink2 = false);
 
     VideoView* view_ = nullptr;
     QLabel* note_ = nullptr;
+    QWidget* note_page_ = nullptr;
+    QPushButton* enable_bink2_ = nullptr;
     QStackedWidget* stack_ = nullptr;
     QToolButton* play_ = nullptr;
     QToolButton* restart_ = nullptr;

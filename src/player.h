@@ -50,6 +50,7 @@ struct StreamSetup {
     int audio_track = -1;  // selected, -1 if none
     double duration = 0;   // seconds, 0 if unknown
     std::string video_note;  // why video is unavailable, if it is
+    bool bink2_needs_dll = false;  // video unavailable only because no bink2w64.dll is provided
 };
 
 // Receives interleaved 32-bit float PCM. Methods are called from the worker

@@ -5,34 +5,49 @@
 #include <cctype>
 #include <filesystem>
 
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
+
 namespace quillreel {
 namespace {
 
 const std::vector<OutputFormat>& table() {
     static const std::vector<OutputFormat> formats = {
         // Video containers
-        {"mp4", "mp4", {"libx264"}, {"aac"}, true, false},
-        {"m4v", "mp4", {"libx264"}, {"aac"}, true, false},
-        {"mov", "mov", {"libx264"}, {"aac"}, true, false},
-        {"mkv", "matroska", {"libx264"}, {"flac"}, true, false},
-        {"webm", "webm", {"libvpx-vp9", "libsvtav1"}, {"libopus", "libvorbis"}, true, false},
+        {"mp4", "mp4", {"libx264"}, {"aac"}, true, false, "MP4 (H.264 video, AAC audio)"},
+        {"m4v", "mp4", {"libx264"}, {"aac"}, true, false, "M4V (H.264 video, AAC audio)"},
+        {"mov", "mov", {"libx264"}, {"aac"}, true, false, "QuickTime MOV (H.264 video, AAC audio)"},
+        {"mkv", "matroska", {"libx264"}, {"flac"}, true, false, "Matroska MKV (H.264 video, FLAC audio)"},
+        {"webm", "webm", {"libvpx-vp9", "libsvtav1"}, {"libopus", "libvorbis"}, true, false, "WebM (VP9 video, Opus audio)"},
         // Uncompressed YUV, exactly as decoded (large: about 3 MB per 1080p frame)
-        {"y4m", "yuv4mpegpipe", {"rawvideo"}, {}, false, false},
+        {"y4m", "yuv4mpegpipe", {"rawvideo"}, {}, false, false, "Y4M (uncompressed video, exactly as decoded; very large)"},
         // Image sequence
-        {"png", "image2", {"png"}, {}, false, true},
+        {"png", "image2", {"png"}, {}, false, true, "PNG image sequence (one file per frame)"},
         // Audio only
-        {"wav", "wav", {}, {"pcm_s16le"}, false, false},
-        {"flac", "flac", {}, {"flac"}, false, false},
-        {"m4a", "ipod", {}, {"aac"}, false, false},
-        {"mka", "matroska", {}, {"flac"}, true, false},
-        {"ogg", "ogg", {}, {"libvorbis", "libopus"}, false, false},
-        {"opus", "opus", {}, {"libopus"}, false, false},
-        {"mp3", "mp3", {}, {"libmp3lame"}, false, false},
+        {"wav", "wav", {}, {"pcm_s16le"}, false, false, "WAV (audio only, uncompressed)"},
+        {"flac", "flac", {}, {"flac"}, false, false, "FLAC (audio only, lossless)"},
+        {"m4a", "ipod", {}, {"aac"}, false, false, "M4A (audio only, AAC)"},
+        {"mka", "matroska", {}, {"flac"}, true, false, "Matroska MKA (audio only, FLAC; can hold all tracks)"},
+        {"ogg", "ogg", {}, {"libvorbis", "libopus"}, false, false, "Ogg (audio only, Vorbis)"},
+        {"opus", "opus", {}, {"libopus"}, false, false, "Opus (audio only)"},
+        {"mp3", "mp3", {}, {"libmp3lame"}, false, false, "MP3 (audio only)"},
     };
     return formats;
 }
 
 }  // namespace
+
+const std::vector<OutputFormat>& output_formats() { return table(); }
+
+bool output_format_available(const OutputFormat& f) {
+    auto any = [](const std::vector<std::string>& names) {
+        for (const std::string& n : names)
+            if (avcodec_find_encoder_by_name(n.c_str())) return true;
+        return false;
+    };
+    return (f.video_encoders.empty() || any(f.video_encoders)) && (f.audio_encoders.empty() || any(f.audio_encoders));
+}
 
 std::optional<OutputFormat> output_format_for(const std::string& path) {
     std::string ext = std::filesystem::path(path).extension().string();

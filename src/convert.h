@@ -2,6 +2,7 @@
 // Bink to common formats via FFmpeg (decode -> filter -> encode -> mux). Spec: specs/converter.md
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -22,6 +23,9 @@ struct ConvertOptions {
     bool all_audio = false;
     bool overwrite = false;
     bool allow_non_bink = false;  // developer/testing: accept any FFmpeg-readable input
+    // Set (from another thread) to stop; the conversion then fails with "cancelled"
+    // and the partial output is deleted.
+    const std::atomic<bool>* cancel = nullptr;
 };
 
 struct ConvertStats {

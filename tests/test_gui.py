@@ -132,4 +132,83 @@ if SAMPLES:
             case(f"{p.name}: with the DLL, Bink 2 video plays", [P, p], (d - 0.2, d + 4), env=env,
                  shown=(n - 2, n), dropped=(0, 3))
 
+
+# ---------------------------------------------------------------- convert dialog
+def convert(spec, *inputs, env=None, extra=()):
+    r = subprocess.run([BIN, "--allow-non-bink", "--test-convert", spec, *extra, *map(str, inputs)],
+                       capture_output=True, text=True, env=env or ENV, timeout=300)
+    m = re.search(r"convert: converted=(\d+) skipped=(\d+) failed=(\d+)", r.stdout)
+    counts = tuple(map(int, m.groups())) if m else None
+    return counts, r.stdout
+
+
+def streams(p):
+    out = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_streams", "-of", "json", str(p)],
+                         check=True, capture_output=True, text=True).stdout
+    return json.loads(out)["streams"]
+
+
+out = WORK / "converted"
+counts, log = convert(f"mp4:{out}", clip)
+s = streams(out / "clip.mp4") if (out / "clip.mp4").exists() else []
+v = [x for x in s if x["codec_type"] == "video"]
+check("convert to mp4", counts == (1, 0, 0) and v and int(v[0]["nb_read_frames"]) == 72, f"{counts} {log}")
+counts, log = convert(f"wav:{out},audio=1", clip)
+s = streams(out / "clip.wav") if (out / "clip.wav").exists() else []
+check("convert track 1 to wav (48 kHz track)", counts == (1, 0, 0) and s and s[0]["sample_rate"] == "48000",
+      f"{counts} {log}")
+counts, log = convert(f"mp4:{out}", clip)
+check("an existing output is skipped", counts == (0, 1, 0) and "already exists" in log, f"{counts} {log}")
+counts, log = convert(f"mp4:{out},overwrite", clip)
+check("...and replaced with overwrite", counts == (1, 0, 0), f"{counts} {log}")
+counts, log = convert(f"wav:{out / 't5'},audio=5", clip)
+check("a missing audio track fails with the reason", counts == (0, 0, 1) and "does not exist" in log, f"{counts} {log}")
+
+long_clip = WORK / "long.mkv"
+ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-t", 40, "-pix_fmt", "yuv420p", "-c:v", "ffv1", long_clip)
+counts, log = convert(f"mp4:{out}", long_clip, extra=("--test-convert-cancel-after", "0.5"))
+check("cancelling deletes the partial file", counts == (0, 1, 0) and "cancelled" in log and not (out / "long.mp4").exists(),
+      f"{counts} {log}")
+
+if SAMPLES:
+    b2 = [p for p in bink if p.suffix.lower() == ".bk2" and has_audio(p)]
+    if b2:
+        p = b2[0]
+        counts, log = convert(f"mp4:{out}", p)
+        s = streams(out / f"{p.stem}.mp4") if (out / f"{p.stem}.mp4").exists() else []
+        check(f"{p.name}: without the DLL, converts audio only",
+              counts == (1, 0, 0) and s and all(x["codec_type"] == "audio" for x in s) and "audio only" in log,
+              f"{counts} {log}")
+        counts, log = convert(f"wav:{out / 't9'},audio=9", p)
+        check(f"{p.name}: a missing audio track is skipped up front", counts == (0, 1, 0) and "no audio track 9" in log,
+              f"{counts} {log}")
+        counts, log = convert(f"png:{out / 'png'}", p)
+        check(f"{p.name}: without the DLL, a PNG sequence is skipped", counts == (0, 1, 0), f"{counts} {log}")
+        if DLL:
+            env = {**ENV, "QUILLREEL_BINK2_DLL": DLL}
+            counts, log = convert(f"mkv:{out},audio=all", p, env=env)
+            s = streams(out / f"{p.stem}.mkv") if (out / f"{p.stem}.mkv").exists() else []
+            vs = [x for x in s if x["codec_type"] == "video"]
+            n_audio = sum(x["codec_type"] == "audio" for x in s)
+            want_audio = sum(x["codec_type"] == "audio" for x in streams(p))
+            check(f"{p.name}: with the DLL, converts video and all {want_audio} audio tracks",
+                  counts == (1, 0, 0) and vs and int(vs[0]["nb_read_frames"]) == int(video(p)["duration_ts"])
+                  and n_audio == want_audio, f"{counts} {log}")
+
+            # Installing and removing the DLL from the GUI refreshes the list.
+            xdg = WORK / "bink2_xdg"
+            env2 = {**ENV, "XDG_DATA_HOME": str(xdg)}
+            r = subprocess.run([BIN, "--test-bink2", f"install:{DLL}", "--test-dump-list", p], capture_output=True,
+                               text=True, env=env2, timeout=120)
+            row = next((line for line in r.stdout.splitlines() if line.startswith("row: ")), "")
+            check("installing the DLL in the GUI enables Bink 2 video",
+                  "bink2: installed" in r.stdout and "\tBink 2\t" in row and (xdg / "quillreel" / "bink2w64.dll").exists(),
+                  r.stdout + r.stderr)
+            r = subprocess.run([BIN, "--test-bink2", "remove", "--test-dump-list", p], capture_output=True, text=True,
+                               env=env2, timeout=120)
+            row = next((line for line in r.stdout.splitlines() if line.startswith("row: ")), "")
+            check("removing it disables Bink 2 video again",
+                  "bink2: removed" in r.stdout and "audio only" in row and not (xdg / "quillreel" / "bink2w64.dll").exists(),
+                  r.stdout + r.stderr)
+
 sys.exit(1 if failures else 0)

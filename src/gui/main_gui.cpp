@@ -2,6 +2,7 @@
 // quillreel-gui: the Qt front end. Spec: specs/gui.md
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDialog>
 #include <QIcon>
 #include <QKeySequence>
 #include <QTimer>
@@ -14,16 +15,20 @@ extern "C" {
 #include <libavutil/log.h>
 }
 
+#include "bink2_dll.h"
+#include "bink2_dialog.h"
+#include "convert_dialog.h"
 #include "main_window.h"
 #include "player_widget.h"
 
+using quillreel::gui::ConvertDialog;
 using quillreel::gui::MainWindow;
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setOrganizationName("Quillreel");
     QApplication::setApplicationName("Quillreel");
-    QApplication::setApplicationVersion("0.4.0");
+    QApplication::setApplicationVersion("0.5.0");
     QApplication::setDesktopFileName("quillreel");
     av_log_set_level(AV_LOG_ERROR);
     // The installed theme icon if there is one, else the copy built into the program.
@@ -49,7 +54,13 @@ int main(int argc, char** argv) {
     const QCommandLineOption report = hidden({"report", "Print playback statistics at exit."});
     const QCommandLineOption test_silent = hidden({"test-silent", "Play at volume 0."});
     const QCommandLineOption test_shot = hidden({"test-screenshot", "Save the window as PNG: SECONDS:PATH", "spec"});
-    parser.addOptions({allow_non_bink, test_play, test_quit, test_keys, test_list, report, test_silent, test_shot});
+    const QCommandLineOption test_convert =
+        hidden({"test-convert", "Convert all listed files: EXT:DIR[,novideo][,audio=all|none|N][,overwrite]", "spec"});
+    const QCommandLineOption test_cancel = hidden({"test-convert-cancel-after", "Cancel after SECONDS.", "seconds"});
+    const QCommandLineOption test_bink2 = hidden({"test-bink2", "After reading the list: install:PATH or remove.", "action"});
+    const QCommandLineOption test_dialog = hidden({"test-dialog", "Open a dialog: convert or bink2.", "name"});
+    parser.addOptions({allow_non_bink, test_play, test_quit, test_keys, test_list, report, test_silent, test_shot,
+                       test_convert, test_cancel, test_bink2, test_dialog});
     parser.process(app);
 
     quillreel::gui::GuiOptions opts;
@@ -57,8 +68,61 @@ int main(int argc, char** argv) {
     MainWindow window(opts);
     window.show();
 
-    if (parser.isSet(test_list)) {
-        QObject::connect(&window, &MainWindow::scan_finished, &app, [&] {
+    // Test sequence, run each time the file list has been read:
+    // --test-bink2 (then the list is read again), --test-convert, --test-dump-list.
+    bool bink2_done = !parser.isSet(test_bink2), convert_started = false;
+    auto after_scan = [&] {
+        if (!bink2_done) {
+            bink2_done = true;
+            const QString action = parser.value(test_bink2);
+            if (action.startsWith("install:")) {
+                auto r = quillreel::bink2::install(action.mid(8).toStdString());
+                std::printf("bink2: %s\n", r ? "installed" : r.error().message.c_str());
+            } else {
+                auto r = quillreel::bink2::uninstall();
+                std::printf("bink2: %s\n", r ? (*r ? "removed" : "nothing to remove") : r.error().message.c_str());
+            }
+            std::fflush(stdout);
+            window.refresh_bink2();  // reads the list again, then comes back here
+            return;
+        }
+        if (parser.isSet(test_convert) && !convert_started) {
+            convert_started = true;
+            const QStringList parts = parser.value(test_convert).split(',');
+            const int colon = parts[0].indexOf(':');
+            window.select_all();
+            ConvertDialog* d = window.make_convert_dialog();
+            if (!d) {
+                std::printf("convert: no files\n");
+                app.exit(1);
+                return;
+            }
+            d->set_format(parts[0].left(colon));
+            d->set_output_dir(parts[0].mid(colon + 1));
+            d->set_video(true);
+            d->set_audio(0);
+            for (const QString& p : parts.mid(1)) {
+                if (p == "novideo") d->set_video(false);
+                if (p == "overwrite") d->set_overwrite(true);
+                if (p == "audio=all") d->set_audio(1);
+                if (p == "audio=none") d->set_audio(3);
+                if (p.startsWith("audio=") && p.mid(6).toInt() > 0) d->set_audio(2, p.mid(6).toInt());
+                if (p == "audio=0") d->set_audio(2, 0);
+            }
+            QObject::connect(d, &ConvertDialog::batch_finished, &app, [&app, d](int ok, int skipped, int failed) {
+                for (const QString& line : d->log_text().split('\n')) std::printf("log: %s\n", qPrintable(line));
+                std::printf("convert: converted=%d skipped=%d failed=%d\n", ok, skipped, failed);
+                std::fflush(stdout);
+                app.quit();
+            });
+            d->show();
+            d->start();
+            if (parser.isSet(test_cancel))
+                QTimer::singleShot(static_cast<int>(parser.value(test_cancel).toDouble() * 1000), d,
+                                   [d] { d->cancel(); });
+            return;
+        }
+        if (parser.isSet(test_list)) {
             QTreeWidget* list = window.file_list();
             list->sortItems(0, Qt::AscendingOrder);
             for (int i = 0; i < list->topLevelItemCount(); ++i) {
@@ -68,8 +132,9 @@ int main(int argc, char** argv) {
             }
             std::fflush(stdout);
             app.quit();
-        });
-    }
+        }
+    };
+    QObject::connect(&window, &MainWindow::scan_finished, &app, after_scan, Qt::QueuedConnection);
     if (parser.isSet(test_silent)) window.player()->change_volume(-100);
     window.add_paths(parser.positionalArguments());
     if (parser.isSet(test_play)) window.play(parser.value(test_play));
@@ -84,12 +149,29 @@ int main(int argc, char** argv) {
             });
         }
     }
+    if (parser.isSet(test_dialog)) {
+        const QString name = parser.value(test_dialog);
+        QTimer::singleShot(500, &window, [&window, name] {
+            QDialog* d = nullptr;
+            if (name == "bink2") {
+                d = new quillreel::gui::Bink2Dialog(&window);
+            } else {
+                window.select_all();
+                d = window.make_convert_dialog();
+            }
+            if (d) d->show();
+        });
+    }
     if (parser.isSet(test_shot)) {
         const QString spec = parser.value(test_shot);
         const int colon = spec.indexOf(':');
         const QString path = spec.mid(colon + 1);
         QTimer::singleShot(static_cast<int>(spec.left(colon).toDouble() * 1000), &window, [&window, path] {
-            if (!window.grab().save(path)) std::fprintf(stderr, "cannot save %s\n", qPrintable(path));
+            // The topmost open dialog if there is one, else the main window.
+            QWidget* target = &window;
+            for (QWidget* w : QApplication::topLevelWidgets())
+                if (w != &window && w->isVisible() && qobject_cast<QDialog*>(w)) target = w;
+            if (!target->grab().save(path)) std::fprintf(stderr, "cannot save %s\n", qPrintable(path));
         });
     }
     if (parser.isSet(test_quit))

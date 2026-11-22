@@ -533,6 +533,10 @@ private:
         double last_report = -1;
         int ret;
         while ((ret = av_read_frame(in_.get(), in_pkt.get())) >= 0) {
+            if (opts_.cancel && opts_.cancel->load(std::memory_order_relaxed)) {
+                av_packet_unref(in_pkt.get());
+                return fail(ErrorKind::Failed, "cancelled");
+            }
             Pipeline* p = by_stream[in_pkt->stream_index];
             if (p) {
                 if (progress_ && in_pkt->pts != AV_NOPTS_VALUE) {

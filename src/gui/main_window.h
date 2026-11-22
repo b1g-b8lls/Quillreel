@@ -22,6 +22,7 @@ class QTreeWidgetItem;
 
 namespace quillreel::gui {
 
+class ConvertDialog;
 class PlayerWidget;
 
 struct GuiOptions {
@@ -42,6 +43,11 @@ public:
     int pending_scans() const { return pending_; }
     // Triggers the menu action whose shortcut matches (for tests).
     bool trigger_shortcut(const QKeySequence& keys);
+    // A convert dialog for the selected files (all files if none are selected).
+    ConvertDialog* make_convert_dialog();
+    void select_all();
+    // Re-reads every file and reopens a playing .bk2, after the DLL changed.
+    void refresh_bink2();
 
 signals:
     void scan_finished();
@@ -62,7 +68,11 @@ private:
     void activate(QTreeWidgetItem* item);
     void set_result(const QString& path, const Result& r);
     void toggle_fullscreen();
-    void show_bink2_status();
+    void show_bink2_dialog();
+    void convert_selected();
+    void show_context_menu(const QPoint& pos);
+    void remove_selected();
+    void scan(const QString& path);
     void show_about();
     QStringList track_labels(const QString& path) const;
 
