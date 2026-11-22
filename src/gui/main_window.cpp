@@ -2,7 +2,9 @@
 #include "main_window.h"
 
 #include <QAction>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QStandardPaths>
 #include <QUrl>
 #include <QCloseEvent>
 #include <QDir>
@@ -32,6 +34,7 @@
 #include "bink2_dll.h"
 #include "convert_dialog.h"
 #include "file_details.h"
+#include "handbrake.h"
 #include "player_widget.h"
 #include "report.h"
 #include "updater.h"
@@ -134,6 +137,7 @@ void MainWindow::build_menus() {
     file->addSeparator();
     file->addAction(QIcon::fromTheme("document-save-as"), tr("&Convert…"), QKeySequence(tr("Ctrl+E")), this,
                     &MainWindow::convert_selected);
+    file->addAction(tr("Open in &HandBrake…"), this, [this] { open_in_handbrake(); });
     file->addSeparator();
     file->addAction(tr("&Clear List"), this, &MainWindow::clear_list);
     file->addSeparator();
@@ -456,6 +460,73 @@ void MainWindow::refresh_bink2() {
 
 void MainWindow::select_all() { files_->selectAll(); }
 
+void MainWindow::open_in_handbrake(bool autostart) {
+    if (pending_) {
+        statusBar()->showMessage(tr("Still reading files; try again in a moment"), 3000);
+        return;
+    }
+    const std::optional<HandBrake> hb = find_handbrake();
+    if (!hb) {
+        QMessageBox box(QMessageBox::Information, tr("Open in HandBrake"),
+                        tr("<p>HandBrake isn't installed (or Quillreel can't find it).</p>"
+                           "<p>HandBrake is a free video converter with many presets. Get it from "
+                           "<a href=\"https://handbrake.fr\">handbrake.fr</a>, or on Linux from your "
+                           "distribution or Flathub, then try again.</p>"),
+                        QMessageBox::Ok, this);
+        box.setTextFormat(Qt::RichText);
+        box.setTextInteractionFlags(Qt::TextBrowserInteraction);
+        box.exec();
+        return;
+    }
+    ConvertDialog* d = make_convert_dialog();
+    if (!d) {
+        QMessageBox::information(this, tr("Open in HandBrake"), tr("Add some Bink files first (File > Open)."));
+        return;
+    }
+    // HandBrake can't read Bink, so Quillreel first writes an exact copy it can read.
+    QSettings settings;
+    QString base = settings.value("handbrake/dir").toString();
+    if (base.isEmpty()) {
+        const QString movies = QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
+        base = QDir(movies.isEmpty() ? QDir::homePath() : movies).filePath(tr("Quillreel for HandBrake"));
+    }
+    // Several files go to a folder of their own: HandBrake then scans just these.
+    const int count = files_->selectedItems().isEmpty() ? files_->topLevelItemCount()
+                                                        : static_cast<int>(files_->selectedItems().size());
+    const QString dir = count > 1 ? QDir(base).filePath(QDateTime::currentDateTime().toString("yyyy-MM-dd hh.mm.ss")) : base;
+    d->set_format("mkv-lossless");
+    d->set_audio(1);  // all tracks
+    d->set_output_dir(dir);
+    d->set_purpose(tr("Open in HandBrake"), tr("&Convert and Open"));
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    connect(d, &ConvertDialog::batch_finished, this, [this, d, hb = *hb, base](int converted, int, int) {
+        const QStringList files = d->converted_files();
+        if (!converted || files.isEmpty()) return;
+        const QString folder = QFileInfo(files.front()).absolutePath();
+        QSettings().setValue("handbrake/dir", base);
+        QString error;
+        if (!gui::open_in_handbrake(hb, files, folder, &error)) {
+            QMessageBox::warning(this, tr("Open in HandBrake"), tr("HandBrake didn't start: %1.").arg(error));
+            return;
+        }
+        statusBar()->showMessage(tr("Opened in HandBrake"), 5000);
+        if (!hb.takes_source || (hb.flatpak && files.size() > 1))
+            QMessageBox::information(
+                d, tr("Open in HandBrake"),
+                hb.takes_source
+                    ? tr("HandBrake has the first file. Add the others from the folder that opened (File > Open Source, "
+                         "or drag them in).")
+                    : tr("HandBrake is starting. Drag the converted files from the folder that opened into HandBrake "
+                         "(or use its Open Source button)."));
+    });
+    if (autostart) {
+        d->show();
+        d->start();
+    } else {
+        d->open();
+    }
+}
+
 ConvertDialog* MainWindow::make_convert_dialog() {
     QList<QTreeWidgetItem*> sel = files_->selectedItems();
     if (sel.isEmpty())
@@ -496,6 +567,7 @@ void MainWindow::show_context_menu(const QPoint& pos) {
     QMenu menu(this);
     menu.addAction(QIcon::fromTheme("media-playback-start"), tr("&Play"), this, [this, path] { play(path); });
     menu.addAction(QIcon::fromTheme("document-save-as"), tr("&Convert…"), this, &MainWindow::convert_selected);
+    menu.addAction(tr("Open in &HandBrake…"), this, [this] { open_in_handbrake(); });
     menu.addSeparator();
     menu.addAction(QIcon::fromTheme("folder-open"), tr("Open Containing &Folder"), this, [path] {
         QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));

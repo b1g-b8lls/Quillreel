@@ -47,6 +47,8 @@ public:
     bool trigger_shortcut(const QKeySequence& keys);
     // A convert dialog for the selected files (all files if none are selected).
     ConvertDialog* make_convert_dialog();
+    // File > Open in HandBrake. autostart (tests) starts converting at once.
+    void open_in_handbrake(bool autostart = false);
     void select_all();
     // Re-reads every file and reopens a playing .bk2, after the DLL changed.
     void refresh_bink2();

@@ -56,6 +56,10 @@ public:
     // Only part of each file (seconds); to <= 0 means to the end.
     void set_trim(double from, double to);
     QString log_text() const;
+    // Window title and Convert button text, for callers with their own purpose.
+    void set_purpose(const QString& title, const QString& button);
+    // The files the last batch wrote (in batch order).
+    QStringList converted_files() const { return converted_files_; }
     void start();
     void cancel();
     bool running() const { return worker_.joinable(); }
@@ -125,6 +129,8 @@ private:
     std::thread worker_;
     std::atomic<bool> cancel_{false};
     int jobs_ = 0, converted_ = 0, skipped_ = 0, failed_ = 0;
+    QStringList outputs_;          // per job of the running batch
+    QStringList converted_files_;  // outputs that were written
 };
 
 }  // namespace quillreel::gui

@@ -153,13 +153,15 @@ int main(int argc, char** argv) {
     const QCommandLineOption test_cancel = hidden({"test-convert-cancel-after", "Cancel after SECONDS.", "seconds"});
     const QCommandLineOption test_bink2 = hidden({"test-bink2", "After reading the list: install:PATH or remove.", "action"});
     const QCommandLineOption test_dialog = hidden({"test-dialog", "Open a dialog: convert or bink2.", "name"});
+    const QCommandLineOption test_handbrake = hidden({"test-handbrake", "After reading the list: Open in HandBrake, "
+                                                                        "converting at once."});
     const QCommandLineOption test_scheme = hidden({"test-color-scheme", "Use the dark or light colour scheme.", "scheme"});
     const QCommandLineOption test_update =
         hidden({"test-update", "Check for an update (check), or also install it (install), then quit.", "action"});
     const QList<QCommandLineOption> test_options = {allow_non_bink, test_play,  test_quit,    test_keys,
                                                     test_list,      report,     test_silent,  test_shot,
                                                     test_convert,   test_cancel, test_bink2,  test_dialog,
-                                                    test_update,    test_scheme};
+                                                    test_update,    test_scheme, test_handbrake};
     parser.addOptions(test_options);
     parser.process(app);
     if (parser.isSet(test_scheme)) {  // as if the desktop asked for it (screenshots of either look)
@@ -238,6 +240,12 @@ int main(int argc, char** argv) {
             if (parser.isSet(test_cancel))
                 QTimer::singleShot(static_cast<int>(parser.value(test_cancel).toDouble() * 1000), d,
                                    [d] { d->cancel(); });
+            return;
+        }
+        if (parser.isSet(test_handbrake) && !convert_started) {
+            convert_started = true;
+            window.select_all();
+            window.open_in_handbrake(/*autostart=*/true);
             return;
         }
         if (parser.isSet(test_list)) {

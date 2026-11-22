@@ -350,6 +350,11 @@ void ConvertDialog::set_height(int height) {
 void ConvertDialog::set_audio_bitrate(int kbps) { abitrate_->setCurrentIndex(std::max(0, abitrate_->findData(kbps))); }
 QString ConvertDialog::log_text() const { return log_->toPlainText(); }
 
+void ConvertDialog::set_purpose(const QString& title, const QString& button) {
+    setWindowTitle(title);
+    convert_->setText(button);
+}
+
 void ConvertDialog::browse() {
     const QString d = QFileDialog::getExistingDirectory(this, tr("Save Converted Files To"), dir_->text());
     if (!d.isEmpty()) dir_->setText(d);
@@ -564,6 +569,9 @@ void ConvertDialog::start() {
 
     log_->clear();
     jobs_ = static_cast<int>(jobs.size());
+    outputs_.clear();
+    for (const Job& j : jobs) outputs_ << j.output;
+    converted_files_.clear();
     converted_ = skipped_ = failed_ = 0;
     file_progress_->setValue(0);
     total_progress_->setValue(0);
@@ -627,8 +635,10 @@ void ConvertDialog::job_progress(int index, double done, double total) {
 }
 
 void ConvertDialog::job_done(int index, bool ok, const QString& message) {
-    if (ok)
+    if (ok) {
         ++converted_;
+        if (index >= 0 && index < outputs_.size()) converted_files_ << outputs_[index];
+    }
     else if (!message.startsWith("–"))
         ++failed_;
     log(message);

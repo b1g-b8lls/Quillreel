@@ -197,6 +197,22 @@ counts, log = convert(f"mkv-lossless:{out / 'lossless'},audio=all", clip)
 ls = streams(out / "lossless" / "clip.mkv") if (out / "lossless" / "clip.mkv").exists() else []
 check("Lossless MKV: FFV1 and every track as FLAC", counts == (1, 0, 0) and [x["codec_name"] for x in ls] ==
       ["ffv1", "flac", "flac"], f"{counts} {log} {[x['codec_name'] for x in ls]}")
+# Open in HandBrake, with a stand-in `ghb` on PATH that records how it was started.
+fake = WORK / "fakebin"
+fake.mkdir()
+(fake / "ghb").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{WORK / 'ghb-args'}'\n")
+(fake / "ghb").chmod(0o755)
+hb_env = {**ENV, "PATH": f"{fake}:{os.environ['PATH']}", "XDG_VIDEOS_DIR": str(WORK / "videos"),
+          "HOME": str(WORK / "home")}
+(WORK / "home").mkdir()
+subprocess.run([BIN, "--allow-non-bink", "--test-handbrake", "--test-quit-after", "20", str(clip)], capture_output=True,
+               text=True, env=hb_env, timeout=60)
+args = (WORK / "ghb-args").read_text().split("\n") if (WORK / "ghb-args").exists() else []
+written = args[1] if len(args) > 1 else ""
+check("Open in HandBrake converts losslessly, then starts ghb -d FILE",
+      args[:1] == ["-d"] and written.endswith("clip.mkv") and Path(written).exists() and
+      [x["codec_name"] for x in streams(Path(written))][:1] == ["ffv1"], args)
+
 counts, log = convert(f"mkv:{out / 'trim'},from=0.5,to=1.5", clip)
 ts = streams(out / "trim" / "clip.mkv") if (out / "trim" / "clip.mkv").exists() else []
 tv = [x for x in ts if x["codec_type"] == "video"]

@@ -91,6 +91,26 @@ another on a worker thread.
   and so are the frames a PNG sequence has written so far. Closing the dialog while it runs
   asks first. Settings are remembered.
 
+## Open in HandBrake
+
+File > Open in HandBrake… (and the list's context menu). HandBrake can't read
+Bink, so the convert dialog opens preset to Lossless MKV with all tracks, saving
+to `Videos/Quillreel for HandBrake` (several files: a dated subfolder, so
+HandBrake's batch scan sees just them). When the batch is done:
+
+- Linux, `ghb` on PATH: `ghb -d FILE` (one file) or `ghb -d FOLDER`.
+- Linux, the `fr.handbrake.ghb` Flatpak: `flatpak run --file-forwarding
+  fr.handbrake.ghb -d @@ FILE @@`, which grants the sandbox that file. Forwarding
+  can't pass a folder, so with several files it gets the first and the folder
+  opens.
+- Windows (`HandBrake.exe` on PATH or in Program Files): HandBrake's GUI
+  documents no way to be given a file, so Quillreel starts it, opens the folder,
+  and says to drag the files in.
+- Not found: a message pointing to handbrake.fr. Quillreel never bundles HandBrake.
+
+Tested with a stand-in `ghb` (`--test-handbrake`); not yet with a real HandBrake.
+Credit for the idea: AudiFormer.
+
 ## Bink 2 Video dialog
 
 Help > Bink 2 Video (also the "Enable Bink 2 Video…" button the player shows for
