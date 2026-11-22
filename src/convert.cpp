@@ -114,6 +114,7 @@ public:
             return fail(ErrorKind::Usage, std::format("don't know how to write '{}' (supported extensions: {})",
                                                       opts_.output, supported_extensions()));
         format_ = *fmt;
+        if (auto s = check_quality_options(); !s) return std::unexpected(s.error());
         if (auto s = check_output_path(); !s) return std::unexpected(s.error());
         if (auto s = select_streams(); !s) return std::unexpected(s.error());
         if (auto s = open_output(); !s) return std::unexpected(s.error());
@@ -154,6 +155,24 @@ private:
         // The Bink demuxer fills everything from the header, so Bink files skip this.
         ret = avformat_find_stream_info(in_.get(), nullptr);
         if (ret < 0) return fail(ErrorKind::Open, std::format("{}: {}", opts_.input, av_error_string(ret)));
+        return {};
+    }
+
+    // Options that can't apply to the chosen format are usage errors.
+    Status check_quality_options() {
+        const std::string ext = "." + format_.extension;
+        if ((opts_.crf || opts_.quality != ConvertOptions::Quality::Default ||
+             opts_.speed != ConvertOptions::Speed::Normal) &&
+            !format_.video_quality)
+            return fail(ErrorKind::Usage, std::format("{} output has no adjustable video quality; --quality, --crf and "
+                                                      "--speed apply to mp4, m4v, mov, mkv and webm",
+                                                      ext));
+        if (opts_.audio_bitrate_kbps > 0 && !format_.audio_bitrate)
+            return fail(ErrorKind::Usage, std::format("{} output has no lossy audio; --audio-bitrate applies to mp4, m4v, "
+                                                      "mov, webm, m4a, ogg, opus and mp3",
+                                                      ext));
+        if ((opts_.width > 0 || opts_.height > 0) && format_.video_encoders.empty())
+            return fail(ErrorKind::Usage, std::format("{} output has no video; --width and --height need a video format", ext));
         return {};
     }
 
@@ -290,15 +309,55 @@ private:
             enc->pix_fmt = avcodec_find_best_pix_fmt_of_list(list.data(), src_fmt, alpha, nullptr);
         }
 
-        // Quality defaults: near-transparent output for archival/editing use.
-        std::string_view name = codec->name;
-        if (name == "libx264") {
-            av_opt_set(enc->priv_data, "crf", "18", 0);
-        } else if (name == "libvpx-vp9") {
-            enc->bit_rate = 0;
-            av_opt_set(enc->priv_data, "crf", "30", 0);
-            av_opt_set(enc->priv_data, "row-mt", "1", 0);
-            av_opt_set(enc->priv_data, "cpu-used", "4", 0);
+        // Output size: one side alone keeps the display aspect ratio; both sides
+        // are rounded to even numbers (4:2:0 chroma). Scaled pictures get square pixels.
+        if (opts_.width > 0 || opts_.height > 0) {
+            const double sar = enc->sample_aspect_ratio.num > 0 && enc->sample_aspect_ratio.den > 0
+                                   ? av_q2d(enc->sample_aspect_ratio)
+                                   : 1.0;
+            const double display_w = enc->width * sar;
+            double w = opts_.width, h = opts_.height;
+            if (w <= 0) w = display_w * h / enc->height;
+            if (h <= 0) h = enc->height * w / display_w;
+            auto even = [](double v) { return std::max(2, static_cast<int>(std::lround(v / 2)) * 2); };
+            enc->width = even(w);
+            enc->height = even(h);
+            enc->sample_aspect_ratio = {1, 1};
+        }
+
+        // Quality. Defaults: near-transparent output for archival/editing use.
+        // Per encoder: CRF range, default, the High/Medium/Small levels, and the
+        // speed setting for Normal/Fast/Slow.
+        struct Tuning {
+            const char* name;
+            int lo, hi, def, levels[3];
+            const char* speed_opt;
+            const char* speeds[3];
+        };
+        static constexpr Tuning kTunings[] = {
+            {"libx264", 0, 51, 18, {15, 23, 28}, "preset", {"medium", "veryfast", "slow"}},
+            {"libvpx-vp9", 0, 63, 30, {24, 36, 42}, "cpu-used", {"4", "6", "2"}},
+            {"libsvtav1", 1, 63, 32, {24, 38, 45}, "preset", {"8", "10", "5"}},
+        };
+        const std::string_view name = codec->name;
+        for (const Tuning& t : kTunings) {
+            if (name != t.name) continue;
+            int crf = t.def;
+            if (opts_.quality == ConvertOptions::Quality::High) crf = t.levels[0];
+            if (opts_.quality == ConvertOptions::Quality::Medium) crf = t.levels[1];
+            if (opts_.quality == ConvertOptions::Quality::Small) crf = t.levels[2];
+            if (opts_.crf) {
+                if (*opts_.crf < t.lo || *opts_.crf > t.hi)
+                    return fail(ErrorKind::Usage,
+                                std::format("--crf for {} ({} output) must be {}-{}", t.name, format_.extension, t.lo, t.hi));
+                crf = *opts_.crf;
+            }
+            av_opt_set_int(enc->priv_data, "crf", crf, 0);
+            av_opt_set(enc->priv_data, t.speed_opt, t.speeds[static_cast<int>(opts_.speed)], 0);
+            if (name == "libvpx-vp9") {
+                enc->bit_rate = 0;  // constant quality
+                av_opt_set(enc->priv_data, "row-mt", "1", 0);
+            }
         }
         return {};
     }
@@ -343,7 +402,9 @@ private:
 
         enc->time_base = {1, enc->sample_rate};
         const AVCodecDescriptor* desc = avcodec_descriptor_get(codec->id);
-        if (desc && !(desc->props & AV_CODEC_PROP_LOSSLESS)) enc->bit_rate = 80000LL * enc->ch_layout.nb_channels;
+        if (desc && !(desc->props & AV_CODEC_PROP_LOSSLESS))
+            enc->bit_rate = opts_.audio_bitrate_kbps > 0 ? 1000LL * opts_.audio_bitrate_kbps
+                                                         : 80000LL * enc->ch_layout.nb_channels;
         return {};
     }
 
@@ -400,6 +461,8 @@ private:
             src_args = std::format("video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}", f->width,
                                    f->height, f->format, tb.num, tb.den, sar.num, sar.den);
             chain = std::format("format=pix_fmts={}", av_get_pix_fmt_name(p.enc->pix_fmt));
+            if (f->width != p.enc->width || f->height != p.enc->height)
+                chain = std::format("scale={}:{}:flags=lanczos,setsar=1,", p.enc->width, p.enc->height) + chain;
             src_name = "buffer";
             sink_name = "buffersink";
         } else {

@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setOrganizationName("Quillreel");
     QApplication::setApplicationName("Quillreel");
-    QApplication::setApplicationVersion("0.5.0");
+    QApplication::setApplicationVersion("0.6.0");
     QApplication::setDesktopFileName("quillreel");
     av_log_set_level(AV_LOG_ERROR);
     // The installed theme icon if there is one, else the copy built into the program.
@@ -55,7 +55,10 @@ int main(int argc, char** argv) {
     const QCommandLineOption test_silent = hidden({"test-silent", "Play at volume 0."});
     const QCommandLineOption test_shot = hidden({"test-screenshot", "Save the window as PNG: SECONDS:PATH", "spec"});
     const QCommandLineOption test_convert =
-        hidden({"test-convert", "Convert all listed files: EXT:DIR[,novideo][,audio=all|none|N][,overwrite]", "spec"});
+        hidden({"test-convert",
+                "Convert all listed files: EXT:DIR[,novideo][,audio=all|none|N][,overwrite][,quality=high|medium|small]"
+                "[,crf=N][,speed=fast|slow][,height=N][,abitrate=K]",
+                "spec"});
     const QCommandLineOption test_cancel = hidden({"test-convert-cancel-after", "Cancel after SECONDS.", "seconds"});
     const QCommandLineOption test_bink2 = hidden({"test-bink2", "After reading the list: install:PATH or remove.", "action"});
     const QCommandLineOption test_dialog = hidden({"test-dialog", "Open a dialog: convert or bink2.", "name"});
@@ -108,6 +111,14 @@ int main(int argc, char** argv) {
                 if (p == "audio=none") d->set_audio(3);
                 if (p.startsWith("audio=") && p.mid(6).toInt() > 0) d->set_audio(2, p.mid(6).toInt());
                 if (p == "audio=0") d->set_audio(2, 0);
+                if (p == "quality=high") d->set_quality(1);
+                if (p == "quality=medium") d->set_quality(2);
+                if (p == "quality=small") d->set_quality(3);
+                if (p.startsWith("crf=")) d->set_quality(4, p.mid(4).toInt());
+                if (p == "speed=fast") d->set_speed(1);
+                if (p == "speed=slow") d->set_speed(2);
+                if (p.startsWith("height=")) d->set_height(p.mid(7).toInt());
+                if (p.startsWith("abitrate=")) d->set_audio_bitrate(p.mid(9).toInt());
             }
             QObject::connect(d, &ConvertDialog::batch_finished, &app, [&app, d](int ok, int skipped, int failed) {
                 for (const QString& line : d->log_text().split('\n')) std::printf("log: %s\n", qPrintable(line));

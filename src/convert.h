@@ -23,6 +23,17 @@ struct ConvertOptions {
     bool all_audio = false;
     bool overwrite = false;
     bool allow_non_bink = false;  // developer/testing: accept any FFmpeg-readable input
+
+    // Quality (spec: specs/converter.md "Quality options"). Defaults keep the
+    // built-in settings.
+    enum class Quality { Default, High, Medium, Small };
+    enum class Speed { Normal, Fast, Slow };
+    Quality quality = Quality::Default;  // video quality level (CRF per encoder)
+    std::optional<int> crf;              // exact CRF, overrides quality
+    Speed speed = Speed::Normal;         // encoder speed/compression trade-off
+    int width = 0, height = 0;           // output size; 0 = keep (one side alone keeps the aspect ratio)
+    int audio_bitrate_kbps = 0;          // per audio track, lossy encoders only; 0 = 80 kb/s per channel
+
     // Set (from another thread) to stop; the conversion then fails with "cancelled"
     // and the partial output is deleted.
     const std::atomic<bool>* cancel = nullptr;

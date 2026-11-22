@@ -9,6 +9,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -97,6 +98,54 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     audio_row->addStretch();
     overwrite_ = new QCheckBox(tr("Replace existing files"), this);
 
+    // Quality, the same choices as `quillreel convert --quality/--crf/--speed/
+    // --height/--audio-bitrate`.
+    quality_box_ = new QGroupBox(tr("Quality"), this);
+    quality_ = new QComboBox(quality_box_);
+    quality_->addItem(tr("Best (near-lossless, default)"));
+    quality_->addItem(tr("High"));
+    quality_->addItem(tr("Medium"));
+    quality_->addItem(tr("Small file"));
+    quality_->addItem(tr("Custom CRF:"));
+    quality_->setToolTip(tr("Video quality. Lower CRF means better quality and bigger files."));
+    crf_ = new QSpinBox(quality_box_);
+    crf_->setRange(0, 51);
+    speed_ = new QComboBox(quality_box_);
+    speed_->addItem(tr("Normal"));
+    speed_->addItem(tr("Fast (bigger files)"));
+    speed_->addItem(tr("Slow (smaller files)"));
+    size_ = new QComboBox(quality_box_);
+    size_->addItem(tr("Original"), 0);
+    for (int h : {1080, 720, 480, 360}) size_->addItem(tr("%1p").arg(h), h);
+    size_->addItem(tr("Custom height:"), -1);
+    size_->setToolTip(tr("Output height; the width follows the aspect ratio."));
+    height_ = new QSpinBox(quality_box_);
+    height_->setRange(16, 4320);
+    height_->setSingleStep(2);
+    height_->setSuffix(tr(" px"));
+    abitrate_ = new QComboBox(quality_box_);
+    abitrate_->addItem(tr("Default (80 kb/s per channel)"), 0);
+    for (int k : {64, 96, 128, 160, 192, 256, 320}) abitrate_->addItem(tr("%1 kb/s").arg(k), k);
+    abitrate_->setToolTip(tr("Per audio track; only for lossy audio (AAC, Opus, Vorbis, MP3)."));
+    auto row = [this](QWidget* a, QWidget* b) {
+        auto* h = new QHBoxLayout;
+        h->addWidget(a);
+        if (b) h->addWidget(b);
+        h->addStretch();
+        return h;
+    };
+    auto* qform = new QFormLayout(quality_box_);
+    qform->addRow(tr("Video quality:"), row(quality_, crf_));
+    qform->addRow(tr("Encoding speed:"), row(speed_, nullptr));
+    qform->addRow(tr("Size:"), row(size_, height_));
+    qform->addRow(tr("Audio bitrate:"), row(abitrate_, nullptr));
+    quality_->setCurrentIndex(std::clamp(settings.value("convert/quality", 0).toInt(), 0, 4));
+    crf_->setValue(settings.value("convert/crf", 18).toInt());
+    speed_->setCurrentIndex(std::clamp(settings.value("convert/speed", 0).toInt(), 0, 2));
+    size_->setCurrentIndex(std::clamp(settings.value("convert/size", 0).toInt(), 0, size_->count() - 1));
+    height_->setValue(settings.value("convert/height", 720).toInt());
+    abitrate_->setCurrentIndex(std::clamp(settings.value("convert/abitrate", 0).toInt(), 0, abitrate_->count() - 1));
+
     notes_ = new QLabel(this);
     notes_->setWordWrap(true);
     notes_->setStyleSheet("color: palette(placeholder-text);");
@@ -128,6 +177,7 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     form->addRow(tr("Video:"), video_);
     form->addRow(tr("Audio:"), audio_row);
     form->addRow(QString(), overwrite_);
+    form->addRow(quality_box_);
     form->addRow(QString(), notes_);
     auto* layout = new QVBoxLayout(this);
     layout->addLayout(form);
@@ -141,6 +191,8 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     connect(audio_, &QComboBox::currentIndexChanged, this, &ConvertDialog::update_notes);
     connect(track_, &QSpinBox::valueChanged, this, &ConvertDialog::update_notes);
     connect(dir_, &QLineEdit::textChanged, this, &ConvertDialog::update_notes);
+    for (QComboBox* c : {quality_, speed_, size_, abitrate_})
+        connect(c, &QComboBox::currentIndexChanged, this, &ConvertDialog::update_notes);
     connect(browse_, &QPushButton::clicked, this, &ConvertDialog::browse);
     connect(convert_, &QPushButton::clicked, this, &ConvertDialog::start);
     connect(cancel_button_, &QPushButton::clicked, this, &ConvertDialog::cancel);
@@ -169,6 +221,23 @@ void ConvertDialog::set_audio(int mode, int track) {
     track_->setValue(track);
 }
 void ConvertDialog::set_overwrite(bool on) { overwrite_->setChecked(on); }
+void ConvertDialog::set_quality(int level, int crf) {
+    quality_->setCurrentIndex(std::clamp(level, 0, 4));
+    crf_->setValue(crf);
+}
+void ConvertDialog::set_speed(int speed) { speed_->setCurrentIndex(std::clamp(speed, 0, 2)); }
+void ConvertDialog::set_height(int height) {
+    const int i = size_->findData(height);
+    if (height <= 0) {
+        size_->setCurrentIndex(0);
+    } else if (i >= 0) {
+        size_->setCurrentIndex(i);
+    } else {
+        size_->setCurrentIndex(size_->findData(-1));
+        height_->setValue(height);
+    }
+}
+void ConvertDialog::set_audio_bitrate(int kbps) { abitrate_->setCurrentIndex(std::max(0, abitrate_->findData(kbps))); }
 QString ConvertDialog::log_text() const { return log_->toPlainText(); }
 
 void ConvertDialog::browse() {
@@ -198,6 +267,22 @@ std::vector<ConvertDialog::Job> ConvertDialog::plan() const {
         const int tracks = known ? static_cast<int>(it.info->audio.size()) : 1;
 
         o.video = video_->isChecked() && fmt_video && has_video;
+        if (f->video_quality) {
+            using Q = ConvertOptions::Quality;
+            switch (quality_->currentIndex()) {
+            case 1: o.quality = Q::High; break;
+            case 2: o.quality = Q::Medium; break;
+            case 3: o.quality = Q::Small; break;
+            case 4: o.crf = crf_->value(); break;
+            default: break;
+            }
+            o.speed = static_cast<ConvertOptions::Speed>(speed_->currentIndex());
+        }
+        if (fmt_video) {
+            const int h = size_->currentData().toInt();
+            o.height = h < 0 ? height_->value() : h;
+        }
+        if (f->audio_bitrate) o.audio_bitrate_kbps = abitrate_->currentData().toInt();
         if (o.video && is_bink2(it) && !bink2_video_enabled(it)) {
             o.video = false;
             j.note = tr("Bink 2 video is not enabled, so audio only");
@@ -257,6 +342,15 @@ void ConvertDialog::update_notes() {
     video_->setEnabled(fmt_video && !running());
     audio_->setEnabled(fmt_audio && !running());
     track_->setVisible(mode == kOneTrack);
+    quality_->setEnabled(f->video_quality && !running());
+    speed_->setEnabled(f->video_quality && !running());
+    crf_->setVisible(quality_->currentIndex() == 4);
+    crf_->setEnabled(f->video_quality && !running());
+    crf_->setMaximum(f->extension == "webm" ? 63 : 51);  // VP9/AV1 vs H.264
+    size_->setEnabled(fmt_video && !running());
+    height_->setVisible(size_->currentData().toInt() < 0);
+    height_->setEnabled(fmt_video && !running());
+    abitrate_->setEnabled(f->audio_bitrate && !running());
 
     QStringList notes;
     if (!fmt_video) notes << tr("This format holds audio only.");
@@ -303,6 +397,12 @@ void ConvertDialog::start() {
     settings.setValue("convert/video", video_->isChecked());
     settings.setValue("convert/audio", audio_->currentIndex());
     settings.setValue("convert/track", track_->value());
+    settings.setValue("convert/quality", quality_->currentIndex());
+    settings.setValue("convert/crf", crf_->value());
+    settings.setValue("convert/speed", speed_->currentIndex());
+    settings.setValue("convert/size", size_->currentIndex());
+    settings.setValue("convert/height", height_->value());
+    settings.setValue("convert/abitrate", abitrate_->currentIndex());
 
     log_->clear();
     jobs_ = static_cast<int>(jobs.size());

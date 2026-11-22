@@ -128,6 +128,49 @@ check("wav is bit-exact", audio_md5(out, 0) == audio_md5(src, 1))
 check_exit("existing output is not replaced", 5, "convert", "--allow-non-bink", src, out)
 check_exit("-y replaces it", 0, "convert", "--allow-non-bink", "-y", src, out)
 
+# Quality options
+def size_of(*args, name):
+    path = WORK / name
+    check_exit(f"{' '.join(map(str, args)) or 'default'} -> {name}", 0, "convert", "--allow-non-bink", "-y", *args, src, path)
+    return path.stat().st_size if path.exists() else 0
+
+
+default_size = size_of(name="q_default.mp4")
+small, high = size_of("--quality", "small", name="q_small.mp4"), size_of("--quality", "high", name="q_high.mp4")
+check("--quality small < default < high", 0 < small < default_size < high, f"{small} {default_size} {high}")
+check("--crf 40 is smaller than the default", 0 < size_of("--crf", 40, name="q_crf.mp4") < default_size)
+size_of("--speed", "fast", name="q_fast.mp4")
+
+
+def dims(path, kind="video"):
+    v = streams(probe(path), kind)
+    return (v[0]["width"], v[0]["height"]) if v else None
+
+
+check_exit("--height 120", 0, "convert", "--allow-non-bink", "-y", "--height", 120, src, WORK / "s1.mp4")
+check("--height keeps the aspect ratio", dims(WORK / "s1.mp4") == (160, 120), dims(WORK / "s1.mp4"))
+check_exit("--width 100", 0, "convert", "--allow-non-bink", "-y", "--width", 100, src, WORK / "s2.mp4")
+check("--width rounds the height to even", dims(WORK / "s2.mp4") == (100, 76), dims(WORK / "s2.mp4"))
+check_exit("--width and --height", 0, "convert", "--allow-non-bink", "-y", "--width", 200, "--height", 100, src, WORK / "s3.mp4")
+check("both sides are used as given", dims(WORK / "s3.mp4") == (200, 100), dims(WORK / "s3.mp4"))
+check_exit("webm --height", 0, "convert", "--allow-non-bink", "-y", "--height", 120, src, WORK / "s4.webm")
+check("webm is resized too", dims(WORK / "s4.webm") == (160, 120), dims(WORK / "s4.webm"))
+sized = WORK / "sized"
+sized.mkdir()
+check_exit("png --height", 0, "convert", "--allow-non-bink", "--height", 60, src, sized / "%03d.png")
+check("png frames are resized", dims(sized / "001.png") == (80, 60), dims(sized / "001.png"))
+check_exit("--audio-bitrate 48", 0, "convert", "--allow-non-bink", "-y", "--audio-bitrate", 48, src, WORK / "b.m4a")
+a = streams(probe(WORK / "b.m4a"), "audio")
+check("the AAC bitrate is about 48 kb/s", a and 38000 <= int(a[0]["bit_rate"]) <= 58000, a and a[0].get("bit_rate"))
+
+check_exit("--crf for wav output", 1, "convert", "--allow-non-bink", "--crf", 20, src, WORK / "u10.wav")
+check_exit("--audio-bitrate for flac output", 1, "convert", "--allow-non-bink", "--audio-bitrate", 96, src, WORK / "u11.flac")
+check_exit("--height for audio-only output", 1, "convert", "--allow-non-bink", "--height", 480, src, WORK / "u12.wav")
+check_exit("--crf beyond H.264's range", 1, "convert", "--allow-non-bink", "--crf", 60, src, WORK / "u13.mp4")
+check_exit("bad --quality value", 1, "convert", "--quality", "ultra", src, WORK / "u14.mp4")
+check_exit("--quality with --crf", 1, "convert", "--quality", "small", "--crf", 20, src, WORK / "u15.mp4")
+check_exit("--no-video with --height", 1, "convert", "--no-video", "--height", 480, src, WORK / "u16.mp4")
+
 # Usage errors
 check_exit("audio track out of range", 1, "convert", "--allow-non-bink", "--audio-track", 2, src, WORK / "u1.wav")
 check_exit("--all-audio into a one-track format", 1, "convert", "--allow-non-bink", "--all-audio", src, WORK / "u2.wav")

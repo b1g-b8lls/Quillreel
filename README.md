@@ -49,6 +49,7 @@ make
 ./build/quillreel convert movie.bik movie.mp4
 ./build/quillreel convert --no-video --all-audio movie.bk2 audio.mka
 ./build/quillreel convert movie.bik frames/%05d.png
+./build/quillreel convert --quality small --height 720 movie.bk2 small.mp4
 ./build/quillreel play movie.bk2
 ./build/quillreel play --audio-track 2 --start 60 movie.bk2
 ./build/quillreel-gui ~/Videos/bink        # the GUI, with a folder of Bink files

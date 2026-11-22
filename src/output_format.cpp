@@ -15,11 +15,11 @@ namespace {
 const std::vector<OutputFormat>& table() {
     static const std::vector<OutputFormat> formats = {
         // Video containers
-        {"mp4", "mp4", {"libx264"}, {"aac"}, true, false, "MP4 (H.264 video, AAC audio)"},
-        {"m4v", "mp4", {"libx264"}, {"aac"}, true, false, "M4V (H.264 video, AAC audio)"},
-        {"mov", "mov", {"libx264"}, {"aac"}, true, false, "QuickTime MOV (H.264 video, AAC audio)"},
-        {"mkv", "matroska", {"libx264"}, {"flac"}, true, false, "Matroska MKV (H.264 video, FLAC audio)"},
-        {"webm", "webm", {"libvpx-vp9", "libsvtav1"}, {"libopus", "libvorbis"}, true, false, "WebM (VP9 video, Opus audio)"},
+        {"mp4", "mp4", {"libx264"}, {"aac"}, true, false, "MP4 (H.264 video, AAC audio)", true, true},
+        {"m4v", "mp4", {"libx264"}, {"aac"}, true, false, "M4V (H.264 video, AAC audio)", true, true},
+        {"mov", "mov", {"libx264"}, {"aac"}, true, false, "QuickTime MOV (H.264 video, AAC audio)", true, true},
+        {"mkv", "matroska", {"libx264"}, {"flac"}, true, false, "Matroska MKV (H.264 video, FLAC audio)", true, false},
+        {"webm", "webm", {"libvpx-vp9", "libsvtav1"}, {"libopus", "libvorbis"}, true, false, "WebM (VP9 video, Opus audio)", true, true},
         // Uncompressed YUV, exactly as decoded (large: about 3 MB per 1080p frame)
         {"y4m", "yuv4mpegpipe", {"rawvideo"}, {}, false, false, "Y4M (uncompressed video, exactly as decoded; very large)"},
         // Image sequence
@@ -27,11 +27,11 @@ const std::vector<OutputFormat>& table() {
         // Audio only
         {"wav", "wav", {}, {"pcm_s16le"}, false, false, "WAV (audio only, uncompressed)"},
         {"flac", "flac", {}, {"flac"}, false, false, "FLAC (audio only, lossless)"},
-        {"m4a", "ipod", {}, {"aac"}, false, false, "M4A (audio only, AAC)"},
+        {"m4a", "ipod", {}, {"aac"}, false, false, "M4A (audio only, AAC)", false, true},
         {"mka", "matroska", {}, {"flac"}, true, false, "Matroska MKA (audio only, FLAC; can hold all tracks)"},
-        {"ogg", "ogg", {}, {"libvorbis", "libopus"}, false, false, "Ogg (audio only, Vorbis)"},
-        {"opus", "opus", {}, {"libopus"}, false, false, "Opus (audio only)"},
-        {"mp3", "mp3", {}, {"libmp3lame"}, false, false, "MP3 (audio only)"},
+        {"ogg", "ogg", {}, {"libvorbis", "libopus"}, false, false, "Ogg (audio only, Vorbis)", false, true},
+        {"opus", "opus", {}, {"libopus"}, false, false, "Opus (audio only)", false, true},
+        {"mp3", "mp3", {}, {"libmp3lame"}, false, false, "MP3 (audio only)", false, true},
     };
     return formats;
 }

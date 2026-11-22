@@ -24,7 +24,7 @@ extern "C" {
 
 namespace {
 
-constexpr std::string_view kVersion = "0.5.0";
+constexpr std::string_view kVersion = "0.6.0";
 
 std::string usage_text() {
     return std::format(
@@ -50,6 +50,16 @@ std::string usage_text() {
         "  --no-audio         Leave out the audio\n"
         "  --audio-track N    Convert audio track N, numbered as in `inspect` (default 0)\n"
         "  --all-audio        Convert every audio track (mp4, mov, mkv, mka, webm)\n"
+        "  --quality LEVEL    Video quality: high, medium or small (default: near-lossless)\n"
+        "  --crf N            Exact video quality instead (lower is better): H.264 0-51\n"
+        "                     (default 18), VP9 0-63 (default 30)\n"
+        "  --speed SPEED      Encoding speed: fast (bigger files), normal or slow (smaller)\n"
+        "                     --quality, --crf and --speed: mp4, m4v, mov, mkv, webm\n"
+        "  --width N, --height N\n"
+        "                     Resize the video; with one of them the other keeps the\n"
+        "                     aspect ratio (e.g. --height 720)\n"
+        "  --audio-bitrate K  Audio bitrate in kb/s per track, for lossy audio (AAC,\n"
+        "                     Opus, Vorbis, MP3; default 80 per channel)\n"
         "  -y, --overwrite    Replace OUTPUT if it exists\n"
         "  --verbose          Show FFmpeg warnings\n"
         "  --allow-non-bink   Accept any input FFmpeg can read (for testing)\n"
@@ -159,6 +169,33 @@ int run_convert(const std::vector<std::string>& args) {
             verbose = true;
         } else if (a == "--allow-non-bink") {
             opts.allow_non_bink = true;
+        } else if (a == "--quality" || a == "--speed") {
+            if (i + 1 >= args.size()) return usage_error(a + " needs a value");
+            const std::string& v = args[++i];
+            using Q = quillreel::ConvertOptions::Quality;
+            using S = quillreel::ConvertOptions::Speed;
+            if (a == "--quality" && v == "high") opts.quality = Q::High;
+            else if (a == "--quality" && v == "medium") opts.quality = Q::Medium;
+            else if (a == "--quality" && v == "small") opts.quality = Q::Small;
+            else if (a == "--speed" && v == "fast") opts.speed = S::Fast;
+            else if (a == "--speed" && v == "normal") opts.speed = S::Normal;
+            else if (a == "--speed" && v == "slow") opts.speed = S::Slow;
+            else
+                return usage_error(a == "--quality" ? "--quality needs high, medium or small, got '" + v + "'"
+                                                    : "--speed needs fast, normal or slow, got '" + v + "'");
+        } else if (a == "--crf" || a == "--width" || a == "--height" || a == "--audio-bitrate") {
+            if (i + 1 >= args.size()) return usage_error(a + " needs a number");
+            const std::string& v = args[++i];
+            int n = -1;
+            auto [end, ec] = std::from_chars(v.data(), v.data() + v.size(), n);
+            const int min = a == "--crf" ? 0 : a == "--audio-bitrate" ? 8 : 16;
+            const int max = a == "--crf" ? 63 : a == "--audio-bitrate" ? 1024 : 16384;
+            if (ec != std::errc() || end != v.data() + v.size() || n < min || n > max)
+                return usage_error(std::format("{} needs a number from {} to {}, got '{}'", a, min, max, v));
+            if (a == "--crf") opts.crf = n;
+            if (a == "--width") opts.width = n;
+            if (a == "--height") opts.height = n;
+            if (a == "--audio-bitrate") opts.audio_bitrate_kbps = n;
         } else if (a == "--audio-track") {
             if (i + 1 >= args.size()) return usage_error("--audio-track needs a number");
             const std::string& v = args[++i];
@@ -175,6 +212,13 @@ int run_convert(const std::vector<std::string>& args) {
     if (!opts.audio && (opts.audio_track || opts.all_audio))
         return usage_error("--no-audio cannot be combined with --audio-track or --all-audio");
     if (opts.audio_track && opts.all_audio) return usage_error("use either --audio-track or --all-audio, not both");
+    if (opts.crf && opts.quality != quillreel::ConvertOptions::Quality::Default)
+        return usage_error("use either --quality or --crf, not both");
+    if (!opts.video && (opts.crf || opts.width || opts.height ||
+                        opts.quality != quillreel::ConvertOptions::Quality::Default ||
+                        opts.speed != quillreel::ConvertOptions::Speed::Normal))
+        return usage_error("--no-video cannot be combined with video options (--quality, --crf, --speed, --width, --height)");
+    if (!opts.audio && opts.audio_bitrate_kbps) return usage_error("--no-audio cannot be combined with --audio-bitrate");
     if (!opts.video && !opts.audio) return usage_error("--no-video and --no-audio leave nothing to convert");
     opts.input = paths[0];
     opts.output = paths[1];

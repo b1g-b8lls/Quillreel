@@ -164,6 +164,17 @@ check("...and replaced with overwrite", counts == (1, 0, 0), f"{counts} {log}")
 counts, log = convert(f"wav:{out / 't5'},audio=5", clip)
 check("a missing audio track fails with the reason", counts == (0, 0, 1) and "does not exist" in log, f"{counts} {log}")
 
+counts, log = convert(f"mp4:{out / 'q'},quality=small,height=120,abitrate=64", clip)
+qs = streams(out / "q" / "clip.mp4") if (out / "q" / "clip.mp4").exists() else []
+qv = [x for x in qs if x["codec_type"] == "video"]
+qa = [x for x in qs if x["codec_type"] == "audio"]
+check("quality options: small, 120p, 64 kb/s",
+      counts == (1, 0, 0) and qv and (qv[0]["width"], qv[0]["height"]) == (160, 120)
+      and qa and 50000 <= int(qa[0]["bit_rate"]) <= 80000
+      and (out / "q" / "clip.mp4").stat().st_size < (out / "clip.mp4").stat().st_size, f"{counts} {log} {qv} {qa}")
+counts, log = convert(f"wav:{out / 'q'},quality=small,abitrate=64", clip)
+check("quality options are ignored where they don't apply", counts == (1, 0, 0), f"{counts} {log}")
+
 long_clip = WORK / "long.mkv"
 ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-t", 40, "-pix_fmt", "yuv420p", "-c:v", "ffv1", long_clip)
 counts, log = convert(f"mp4:{out}", long_clip, extra=("--test-convert-cancel-after", "0.5"))

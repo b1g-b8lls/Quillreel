@@ -17,6 +17,7 @@
 class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
+class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
@@ -43,6 +44,12 @@ public:
     void set_video(bool on);
     void set_audio(int mode, int track = 0);  // 0 first track, 1 all, 2 track number, 3 none
     void set_overwrite(bool on);
+    // Quality: level 0 default, 1 high, 2 medium, 3 small, 4 custom CRF;
+    // speed 0 normal, 1 fast, 2 slow; height 0 = original; kbps 0 = default.
+    void set_quality(int level, int crf = 18);
+    void set_speed(int speed);
+    void set_height(int height);
+    void set_audio_bitrate(int kbps);
     QString log_text() const;
     void start();
     void cancel();
@@ -84,6 +91,13 @@ private:
     QComboBox* audio_ = nullptr;
     QSpinBox* track_ = nullptr;
     QCheckBox* overwrite_ = nullptr;
+    QGroupBox* quality_box_ = nullptr;
+    QComboBox* quality_ = nullptr;
+    QSpinBox* crf_ = nullptr;
+    QComboBox* speed_ = nullptr;
+    QComboBox* size_ = nullptr;
+    QSpinBox* height_ = nullptr;
+    QComboBox* abitrate_ = nullptr;
     QLabel* notes_ = nullptr;
     QProgressBar* file_progress_ = nullptr;
     QProgressBar* total_progress_ = nullptr;

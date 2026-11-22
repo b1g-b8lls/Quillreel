@@ -54,6 +54,13 @@ another on a worker thread.
 - **Video**: include or leave out. **Audio**: first track, all tracks (formats
   that hold several), a track number, or none. **Replace existing files**: off
   by default, so existing outputs are skipped.
+- **Quality** (the CLI's quality options, specs/converter.md):
+  - Video quality: Best (the default), High, Medium, Small file, or a custom CRF.
+  - Encoding speed: Normal, Fast or Slow.
+  - Size: Original, 1080p, 720p, 480p, 360p, or a custom height.
+  - Audio bitrate: the default, or 64–320 kb/s.
+  Rows the chosen format can't use are greyed out, and their values are not
+  applied. The custom CRF goes up to 51 for H.264 and 63 for WebM.
 - A plan is made per file before starting, and anything adjusted or skipped is
   noted:
   - Bink 2 without the DLL converts its audio only; for a video-only format
@@ -132,6 +139,5 @@ Offscreen Qt has no OpenGL, so the picture itself is checked only by hand or wit
 
 ## Next
 
-- Quality options for conversion (CRF, size) once the CLI has them.
 - Open questions: should the list show more (bit rate, keyframes)? Thumbnails?
   Remember the file list between runs?

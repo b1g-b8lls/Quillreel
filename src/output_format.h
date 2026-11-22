@@ -16,6 +16,8 @@ struct OutputFormat {
     bool multi_audio = false;                 // can hold more than one audio track
     bool image_sequence = false;              // path must contain a frame number pattern
     std::string description;                  // for menus, e.g. "MP4 (H.264 video, AAC audio)"
+    bool video_quality = false;               // takes --quality/--crf/--speed (H.264, VP9, AV1)
+    bool audio_bitrate = false;               // lossy audio: takes --audio-bitrate
 };
 
 // Every supported format, in menu order.
