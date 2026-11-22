@@ -98,6 +98,10 @@ case("a seek while paused shows the frame at the target (2 = 20 %)",
      last_pts=(14 * FRAME - 0.001, 14 * FRAME + 0.001))
 case("L goes forward 10 s (past the end)", [A, P, clip, "--test-keys", "0.5:L"], (0.4, 2.5))
 
+# Started with a file (as the file manager or Explorer does): it plays.
+r, rep, _ = gui(A, clip, limit=2)
+check("a file given at start-up plays", rep.get("shown", 0) > 20, rep)
+
 # The file list: real Bink files, and a broken one.
 listdir = WORK / "list"
 listdir.mkdir()

@@ -16,7 +16,17 @@ quillreel-gui [FILE|FOLDER...]
 ```
 
 Files and folders on the command line, or dropped on the window, are added to
-the list. Folders are searched recursively for `.bik`/`.bk2`.
+the list. Folders are searched recursively for `.bik`/`.bk2`. The first file
+given on the command line also starts playing, which is what happens when a
+file is opened from the file manager or Explorer (not when a `--test-…` option
+drives the window).
+
+Opening Bink files with Quillreel: the desktop entry declares
+`MimeType=video/vnd.radgamettools.bink`, the type shared-mime-info (2.4 and
+later, e.g. Debian 13) already defines for both `.bik` and `.bk2` (by name and
+by the `BIK`/`KB2` signature), so file managers offer Quillreel for Bink 1 and
+Bink 2 files. (Up to 0.7.0 it declared `video/x-bink`, which nothing defines.)
+On Windows the installer's file association does the same.
 
 ## Window
 

@@ -7,4 +7,4 @@ Exec=quillreel-gui %F
 Icon=quillreel
 Terminal=false
 Categories=AudioVideo;Video;Player;
-MimeType=video/x-bink;
+MimeType=video/vnd.radgamettools.bink;

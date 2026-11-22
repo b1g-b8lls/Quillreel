@@ -6,6 +6,7 @@
 #include <QCommandLineParser>
 #include <QDialog>
 #include <QFile>
+#include <QFileInfo>
 #include <QIcon>
 #include <QPalette>
 #include <QStyle>
@@ -264,6 +265,19 @@ int main(int argc, char** argv) {
     if (parser.isSet(test_silent)) window.player()->change_volume(-100);
     window.add_paths(parser.positionalArguments());
     if (parser.isSet(test_play)) window.play(parser.value(test_play));
+    const bool testing = std::ranges::any_of(test_options, [&](const QCommandLineOption& o) { return parser.isSet(o); });
+    // Opened with files (a double-click in the file manager or Explorer): play
+    // the first, unless a test drives the window itself.
+    const bool scripted = std::ranges::any_of(
+        QList<QCommandLineOption>{test_play, test_list, test_convert, test_bink2, test_dialog, test_update, test_handbrake,
+                                  test_keys},
+        [&](const QCommandLineOption& o) { return parser.isSet(o); });
+    if (!scripted)
+        for (const QString& p : parser.positionalArguments())
+            if (QFileInfo(p).isFile()) {
+                window.play(p);
+                break;
+            }
 
     if (parser.isSet(test_keys)) {
         for (const QString& item : parser.value(test_keys).split(',', Qt::SkipEmptyParts)) {
@@ -306,8 +320,7 @@ int main(int argc, char** argv) {
     }
     if (parser.isSet(test_update)) {
         window.updater()->run_test(parser.value(test_update) == "install", [&app](int rc) { app.exit(rc); });
-    } else if (QGuiApplication::platformName() != "offscreen" &&
-               std::ranges::none_of(test_options, [&](const QCommandLineOption& o) { return parser.isSet(o); })) {
+    } else if (QGuiApplication::platformName() != "offscreen" && !testing) {
         // Not in tests or headless runs: the first-start question would block them.
         window.updater()->start_automatic();
     }
