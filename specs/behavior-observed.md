@@ -1,8 +1,7 @@
-# Observed behavior of RADTools.exe (spec side)
+# Observed behavior of RADTools.exe
 
-**Written by the spec side only**, from running the program and reading its public
-docs. No disassembly, decompiler output, SDK headers or copied UI text/icons. Describe
-behavior in your own words. Put screenshots under `specs/screenshots/` only if they
+Notes from running the program and reading its public docs. Describe behavior in
+your own words; don't copy its UI text or icons. Put screenshots under `specs/screenshots/` only if they
 show *your* sample files and the layout, and record the source for each fact
 (see `specs/README.md`).
 

@@ -1,9 +1,9 @@
 # Specs
 
-There are two kinds of spec. Both follow `docs/CLEANROOM.md`.
+There are two kinds of spec.
 
 - **Observed behavior** (`behavior-observed.md`): what the original RADTools.exe does, as
-  seen from the outside. Written by the spec side only.
+  seen from the outside.
 - **Design specs** (`inspector.md`, `player.md`, `converter.md`, `gui.md`): what Quillreel
   does. Each one cites observed behavior or public sources.
 

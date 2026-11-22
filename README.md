@@ -2,7 +2,7 @@
 
 A native Linux tool for Bink video files (.bik / .bk2): inspect, convert and play
 them. Built on FFmpeg and SDL3. Not affiliated with RAD Game Tools or Epic Games.
-See [docs/CLEANROOM.md](docs/CLEANROOM.md).
+See [docs/LEGAL.md](docs/LEGAL.md).
 
 ## Status
 
@@ -76,6 +76,6 @@ Playback tests run in real time with SDL's dummy drivers and Qt's offscreen plat
 - `data/`: desktop entry and icon (SVG sources in `data/icons/src/`; `data/icons/render.sh` makes the PNG sizes)
 - `specs/`: behavior specs (observed) and design specs
 - `tests/`: test runner, ffprobe comparison, convert and playback tests
-- `docs/CLEANROOM.md`: project ground rules
+- `docs/LEGAL.md`: legal notes and repository rules
 
 License: GPL-3.0-or-later.

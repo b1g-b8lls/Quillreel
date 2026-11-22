@@ -5,8 +5,8 @@ decoder, and Quillreel does not contain one either. Until the user provides
 **RAD's own decoder, `bink2w64.dll`**, from a game that ships it, .bk2 files can
 only be inspected and have their audio played and converted. Once it is provided
 (`quillreel bink2 install`), Quillreel runs it to play and convert .bk2 video.
-Quillreel never includes, downloads or installs that file itself. This part of the project is outside the clean room (see
-CLEANROOM.md).
+Quillreel never includes, downloads or installs that file itself (see
+LEGAL.md).
 
 ```sh
 quillreel bink2 install "/path/to/Fallout 4/bink2w64.dll"   # checks it, copies it
