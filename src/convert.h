@@ -34,6 +34,14 @@ struct ConvertOptions {
     int width = 0, height = 0;           // output size; 0 = keep (one side alone keeps the aspect ratio)
     int audio_bitrate_kbps = 0;          // per audio track, lossy encoders only; 0 = 80 kb/s per channel
 
+    // Codecs by name (see output_format.h codecs()); empty = the format's default.
+    std::string video_codec;
+    std::string audio_codec;
+
+    // Only part of the input: from `from` seconds up to (not including) `to`.
+    double from = 0;
+    std::optional<double> to;
+
     // Set (from another thread) to stop; the conversion then fails with "cancelled"
     // and the partial output is deleted.
     const std::atomic<bool>* cancel = nullptr;
@@ -53,5 +61,12 @@ struct ConvertStats {
 using ProgressFn = std::function<void(double done_s, double total_s)>;
 
 std::expected<ConvertStats, Error> convert_file(const ConvertOptions& opts, const ProgressFn& progress = {});
+
+// SVT-AV1 prints a banner to stderr for every encode; keep only its errors
+// (unless SVT_LOG is set). Call at start-up, before any threads.
+void quiet_encoder_logs();
+
+// For --from/--to: seconds ("75.5") or a clock time ("1:15.5", "0:01:15").
+std::optional<double> parse_time(const std::string& text);
 
 }  // namespace quillreel

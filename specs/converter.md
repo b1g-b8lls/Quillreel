@@ -53,11 +53,11 @@ change.
 
 | Option | Effect | Formats |
 |--------|--------|---------|
-| `--quality high\|medium\|small` | CRF level per encoder: H.264 15/23/28, VP9 24/36/42, AV1 24/38/45 (defaults 18, 30, 32) | mp4, m4v, mov, mkv, webm |
-| `--crf N` | exact CRF instead: H.264 0-51, VP9 0-63, AV1 1-63 | same |
-| `--speed fast\|normal\|slow` | x264 preset veryfast/medium/slow; VP9 cpu-used 6/4/2; AV1 preset 10/8/5 | same |
+| `--quality high\|medium\|small` | CRF level per encoder: H.264 15/23/28, H.265 17/26/31, VP9 24/36/42, AV1 24/38/45 (defaults 18, 20, 30, 32) | H.264, H.265, VP9, AV1 video |
+| `--crf N` | exact CRF instead: H.264/H.265 0-51, VP9 0-63, AV1 1-63 | same |
+| `--speed fast\|normal\|slow` | x264/x265 preset veryfast/medium/slow; VP9 cpu-used 6/4/2; AV1 preset 10/8/5 | same |
 | `--width N`, `--height N` | resize (Lanczos). One side alone keeps the display aspect ratio; both are rounded to even numbers; scaled output has square pixels | every video format, also png and y4m |
-| `--audio-bitrate K` | kb/s per audio track (default 80 per channel) | lossy audio: mp4, m4v, mov, webm, m4a, ogg, opus, mp3 |
+| `--audio-bitrate K` | kb/s per audio track (default 80 per channel) | lossy audio: AAC, Opus, Vorbis, MP3 |
 
 - An option the output format can't use is a usage error (exit 1), e.g. `--crf`
   with .wav, `--audio-bitrate` with .flac, or `--height` with an audio-only
@@ -66,6 +66,37 @@ change.
 - [verified on a generated clip] `--quality small` < default < `high` in file
   size, `--height 120` on 320×240 gives 160×120, `--width 100` gives 100×76,
   and `--audio-bitrate 48` gives AAC at about 48 kb/s.
+
+## Codecs, lossless and trimming
+
+Added after a tester asked for more options (credit: AudiFormer).
+
+- `--video-codec` / `--audio-codec` pick the codec where the container allows;
+  the first listed is the default (the encoder table above):
+
+  | Container | Video | Audio |
+  |-----------|-------|-------|
+  | mp4, m4v | h264, h265, av1 | aac, mp3, opus, flac |
+  | mov | h264, h265 | aac |
+  | mkv | h264, h265, av1, vp9, ffv1 | flac, aac, opus, vorbis, mp3, pcm |
+  | webm | vp9, av1 | opus, vorbis |
+  | mka | – | flac, aac, opus, vorbis, mp3, pcm |
+
+  A codec the container can't hold, an unknown name, or a choice for a format
+  without one (png, wav, ...) is a usage error; a codec this FFmpeg build has no
+  encoder for is exit 4. Quality and bitrate options follow the codec (FFV1,
+  FLAC and PCM take none). H.265 in MP4/MOV is tagged `hvc1`, which Apple's
+  players need. The table lives in `output_format.cpp`.
+- `--lossless` = FFV1 (version 3, sliced, CRC per slice; alpha kept) + FLAC, all
+  audio tracks unless `--audio-track` is given; `.mkv` only. [verified] The
+  decoded frames hash identically to the `.y4m` output and the audio is
+  bit-exact. Large: about 25 MB per second of 1080p.
+- `--from T` / `--to T` (seconds or `[h:]m:ss[.fff]`) convert part of the input,
+  through `trim`/`atrim` + `setpts`/`asetpts` at the start of each filter chain,
+  so the output starts at 0. Reading stops 2 s past `--to`. The cut is
+  sample-exact on Bink input [verified: 3.5 s at 48 kHz = 168000 samples];
+  inputs with millisecond timestamps (Matroska) are exact to within 1 ms.
+  `--from` past the end, or `--to` not after `--from`, is a usage error.
 
 ## Cancelling
 

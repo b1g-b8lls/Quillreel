@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -69,6 +70,17 @@ std::string usage_text() {
         "                     aspect ratio (e.g. --height 720)\n"
         "  --audio-bitrate K  Audio bitrate in kb/s per track, for lossy audio (AAC,\n"
         "                     Opus, Vorbis, MP3; default 80 per channel)\n"
+        "  --video-codec C    h264, h265, av1, vp9 or ffv1 (lossless), where the format\n"
+        "                     allows: mp4/m4v h264 h265 av1; mov h264 h265;\n"
+        "                     mkv all; webm vp9 av1 (default: the first listed)\n"
+        "  --audio-codec C    aac, opus, vorbis, mp3, flac or pcm, where the format\n"
+        "                     allows: mp4/m4v aac mp3 opus flac; mov aac; webm opus\n"
+        "                     vorbis; mkv/mka all (default: the first listed)\n"
+        "  --lossless         Exact copy of the decoded picture and sound: FFV1 video,\n"
+        "                     FLAC audio, every track (.mkv only; large)\n"
+        "  --from TIME, --to TIME\n"
+        "                     Convert only this part; TIME is seconds (75.5) or\n"
+        "                     [h:]m:ss[.fff] (1:15.5)\n"
         "  -y, --overwrite    Replace OUTPUT if it exists\n"
         "  --verbose          Show FFmpeg warnings\n"
         "  --allow-non-bink   Accept any input FFmpeg can read (for testing)\n"
@@ -184,7 +196,7 @@ std::string format_seconds(double s) {
 
 int run_convert(const std::vector<std::string>& args) {
     quillreel::ConvertOptions opts;
-    bool verbose = false;
+    bool verbose = false, lossless = false;
     std::vector<std::string> paths;
     bool options_done = false;
     for (size_t i = 0; i < args.size(); ++i) {
@@ -232,6 +244,17 @@ int run_convert(const std::vector<std::string>& args) {
             if (a == "--width") opts.width = n;
             if (a == "--height") opts.height = n;
             if (a == "--audio-bitrate") opts.audio_bitrate_kbps = n;
+        } else if (a == "--video-codec" || a == "--audio-codec") {
+            if (i + 1 >= args.size()) return usage_error(a + " needs a codec name");
+            (a == "--video-codec" ? opts.video_codec : opts.audio_codec) = args[++i];
+        } else if (a == "--lossless") {
+            lossless = true;
+        } else if (a == "--from" || a == "--to") {
+            if (i + 1 >= args.size()) return usage_error(a + " needs a time");
+            auto t = quillreel::parse_time(args[++i]);
+            if (!t) return usage_error(std::format("{} needs seconds or [h:]m:ss[.fff], got '{}'", a, args[i]));
+            if (a == "--from") opts.from = *t;
+            else opts.to = *t;
         } else if (a == "--audio-track") {
             if (i + 1 >= args.size()) return usage_error("--audio-track needs a number");
             const std::string& v = args[++i];
@@ -245,6 +268,18 @@ int run_convert(const std::vector<std::string>& args) {
         }
     }
     if (paths.size() != 2) return usage_error("convert needs exactly one INPUT and one OUTPUT");
+    if (lossless) {
+        if (!opts.video_codec.empty() || !opts.audio_codec.empty() || opts.crf || opts.audio_bitrate_kbps ||
+            opts.quality != quillreel::ConvertOptions::Quality::Default ||
+            opts.speed != quillreel::ConvertOptions::Speed::Normal)
+            return usage_error("--lossless sets the codecs itself; it can't be combined with codec, quality or bitrate options");
+        auto f = quillreel::output_format_for(paths[1]);
+        if (!f || f->extension != "mkv") return usage_error("--lossless writes Matroska: use an .mkv OUTPUT");
+        opts.video_codec = "ffv1";
+        opts.audio_codec = "flac";
+        if (!opts.audio_track && opts.audio) opts.all_audio = true;
+    }
+    if (opts.to && *opts.to <= opts.from) return usage_error("--to must come after --from");
     if (!opts.audio && (opts.audio_track || opts.all_audio))
         return usage_error("--no-audio cannot be combined with --audio-track or --all-audio");
     if (opts.audio_track && opts.all_audio) return usage_error("use either --audio-track or --all-audio, not both");
@@ -260,6 +295,7 @@ int run_convert(const std::vector<std::string>& args) {
     opts.output = paths[1];
 
     av_log_set_level(verbose ? AV_LOG_WARNING : AV_LOG_ERROR);
+    if (!verbose) quillreel::quiet_encoder_logs();
 
     const bool show_progress = !verbose && isatty(STDERR_FILENO);
     quillreel::ProgressFn progress;

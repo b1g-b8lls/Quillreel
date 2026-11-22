@@ -25,6 +25,7 @@ extern "C" {
 
 #include "bink2_dll.h"
 #include "bink2_dialog.h"
+#include "convert.h"
 #include "convert_dialog.h"
 #include "main_window.h"
 #include "player_widget.h"
@@ -116,6 +117,7 @@ int main(int argc, char** argv) {
     QApplication::setApplicationVersion("0.7.0");
     QApplication::setDesktopFileName("quillreel");
     av_log_set_level(AV_LOG_ERROR);
+    quillreel::quiet_encoder_logs();
     // The installed theme icon if there is one, else the copy built into the program.
     QIcon builtin;
     for (int s : {16, 22, 24, 32, 48, 64, 128, 256}) builtin.addFile(QString(":/icons/quillreel-%1.png").arg(s));

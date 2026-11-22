@@ -18,7 +18,24 @@ struct OutputFormat {
     std::string description;                  // for menus, e.g. "MP4 (H.264 video, AAC audio)"
     bool video_quality = false;               // takes --quality/--crf/--speed (H.264, VP9, AV1)
     bool audio_bitrate = false;               // lossy audio: takes --audio-bitrate
+    // --video-codec / --audio-codec choices this container holds; the first is
+    // the default (the encoders above). Empty: no choice.
+    std::vector<std::string> video_codecs{};
+    std::vector<std::string> audio_codecs{};
 };
+
+// A codec the user can pick by name (--video-codec h265).
+struct Codec {
+    std::string name;                   // h264, h265, av1, vp9, ffv1; aac, opus, vorbis, mp3, flac, pcm
+    std::string label;                  // H.264, ...
+    std::vector<std::string> encoders;  // FFmpeg encoders, in order of preference
+    bool video = false;
+    bool tunable = false;  // video: takes --quality/--crf/--speed
+    bool lossy = false;    // audio: takes --audio-bitrate
+};
+const std::vector<Codec>& codecs();
+const Codec* find_codec(const std::string& name);
+bool codec_available(const Codec& c);  // this FFmpeg build has one of its encoders
 
 // Every supported format, in menu order.
 const std::vector<OutputFormat>& output_formats();

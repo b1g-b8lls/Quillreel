@@ -213,6 +213,79 @@ check_exit("missing input file", 2, "convert", WORK / "nope.bk2", WORK / "u9.wav
 leftovers = [p.name for p in WORK.iterdir() if p.name.startswith("u")]
 check("failed conversions leave no files behind", not leftovers, str(leftovers))
 
+# ---------------------------------------------------------------- codecs, lossless, trimming
+A = "--allow-non-bink"
+
+
+def frame_hashes(path):
+    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v", "-f", "framemd5", "-"],
+                         check=True, capture_output=True, text=True).stdout
+    return [line.rsplit(",", 1)[-1].strip() for line in out.splitlines() if line and not line.startswith("#")]
+
+
+def codecs_of(path):
+    info = probe(path)
+    return [(s["codec_type"], s["codec_name"], s.get("codec_tag_string", "")) for s in info["streams"]]
+
+
+out = WORK / "h265.mp4"
+if check_exit("--video-codec h265 -> mp4", 0, "convert", A, "--video-codec", "h265", src, out).returncode == 0:
+    check("mp4 holds H.265 tagged hvc1 (for Apple players)", ("video", "hevc", "hvc1") in codecs_of(out), codecs_of(out))
+out = WORK / "av1.mkv"
+if check_exit("--video-codec av1 --audio-codec opus -> mkv", 0, "convert", A, "--video-codec", "av1", "--audio-codec",
+              "opus", src, out).returncode == 0:
+    c = codecs_of(out)
+    check("mkv holds AV1 and Opus", c and c[0][1] == "av1" and c[1][1] == "opus", c)
+out = WORK / "pcm.mkv"
+if check_exit("--audio-codec pcm -> mkv", 0, "convert", A, "--audio-codec", "pcm", src, out).returncode == 0:
+    check("mkv audio is PCM and bit-exact", codecs_of(out)[1][1].startswith("pcm") and audio_md5(out, 0) == audio_md5(src, 0))
+check_exit("FFV1 doesn't fit in mp4", 1, "convert", A, "--video-codec", "ffv1", src, WORK / "x.mp4")
+check_exit("unknown codec name", 1, "convert", A, "--video-codec", "theora", src, WORK / "x.mkv")
+check_exit("an audio codec as --video-codec", 1, "convert", A, "--video-codec", "flac", src, WORK / "x.mkv")
+check_exit("no codec choice for png", 1, "convert", A, "--video-codec", "h264", src, WORK / "p_%03d.png")
+check_exit("--quality with lossless FFV1", 1, "convert", A, "--video-codec", "ffv1", "--quality", "small", src,
+           WORK / "x.mkv")
+check_exit("--audio-bitrate with FLAC", 1, "convert", A, "--audio-codec", "flac", "--audio-bitrate", 96, src,
+           WORK / "x.mp4")
+check("H.265 has its own quality levels (small < high)",
+      run("convert", A, "-y", "--video-codec", "h265", "--quality", "small", src, WORK / "s.mp4").returncode == 0 and
+      run("convert", A, "-y", "--video-codec", "h265", "--quality", "high", src, WORK / "h.mp4").returncode == 0 and
+      (WORK / "s.mp4").stat().st_size < (WORK / "h.mp4").stat().st_size)
+
+out = WORK / "lossless.mkv"
+if check_exit("--lossless -> mkv", 0, "convert", A, "--lossless", src, out).returncode == 0:
+    c = codecs_of(out)
+    check("lossless is FFV1 with every track as FLAC", [x[1] for x in c] == ["ffv1", "flac", "flac"], c)
+    ref = WORK / "ref.y4m"
+    run("convert", A, "-y", src, ref)
+    check("lossless frames are identical to the decoded ones", frame_hashes(out) == frame_hashes(ref))
+    check("lossless audio is bit-exact", all(audio_md5(out, i) == audio_md5(src, i) for i in range(2)))
+check_exit("--lossless needs .mkv", 1, "convert", A, "--lossless", src, WORK / "x.mp4")
+check_exit("--lossless with --video-codec", 1, "convert", A, "--lossless", "--video-codec", "h264", src, WORK / "x.mkv")
+
+# 2.002 s source; frame duration 1001/24000 s.
+out = WORK / "trim.mkv"
+if check_exit("--from 0.5 --to 1.5", 0, "convert", A, "--from", "0.5", "--to", "1.5", src, out).returncode == 0:
+    info = probe(out, count_frames=True)
+    v, a = streams(info, "video"), streams(info, "audio")
+    n = v and int(v[0]["nb_read_frames"])
+    check("trimmed video has the 24 frames from 0.5 s to 1.5 s", n == 24, n)
+    check("trimmed streams start at 0", all(abs(float(x.get("start_time", 0))) < 0.01 for x in v + a), v + a)
+    wav = WORK / "trim.wav"
+    run("convert", A, "-y", "--from", "0.5", "--to", "1.5", src, wav)
+    samples = streams(probe(wav), "audio")[0].get("duration_ts")
+    # Matroska timestamps are whole milliseconds, so the cut can be off by up to 1 ms.
+    check("trimmed audio is 1.0 s (44100 samples, within 1 ms)", samples is not None and abs(int(samples) - 44100) <= 45,
+          samples)
+    ref = WORK / "ref.y4m"
+    run("convert", A, "-y", src, ref)
+    check("trimmed frames are the source's frames 12-35", frame_hashes(WORK / "trimref.y4m") == frame_hashes(ref)[12:36]
+          if run("convert", A, "-y", "--from", "0.5", "--to", "1.5", src, WORK / "trimref.y4m").returncode == 0 else False)
+check_exit("--from accepts m:ss", 0, "convert", A, "-y", "--from", "0:01", src, WORK / "t2.wav")
+check_exit("--from past the end", 1, "convert", A, "-y", "--from", 5, src, WORK / "t3.wav")
+check_exit("--to before --from", 1, "convert", A, "-y", "--from", 1, "--to", "0.5", src, WORK / "t4.wav")
+check_exit("bad time", 1, "convert", A, "-y", "--from", "1:2:3:4", src, WORK / "t5.wav")
+
 # ---------------------------------------------------------------- real Bink samples
 if SAMPLES:
     bink = sorted({p for d in SAMPLES for p in d.rglob("*") if p.suffix.lower() in (".bik", ".bk2")},
@@ -266,6 +339,17 @@ if SAMPLES:
         print("skip Bink video tests (no sample with decodable video, e.g. Bink 1)")
 
     # Track selection needs a file whose tracks differ; compare 5 s of first and last.
+    if with_audio:
+        p = with_audio[0]
+        a0 = streams(info[p], "audio")[0]
+        dur = float(info[p]["format"]["duration"])
+        if dur > 2.5:
+            out = WORK / "bink_trim.wav"
+            check_exit(f"{p.name}: --from 1 --to 2.5 (audio)", 0, "convert", "--no-video", "--from", 1, "--to", "2.5", p, out)
+            n = int(streams(probe(out), "audio")[0]["duration_ts"]) if out.exists() else -1
+            want = round(1.5 * int(a0["sample_rate"]))
+            check(f"{p.name}: the trimmed audio is exactly 1.5 s ({want} samples)", n == want, n)
+
     def distinct_tracks(p):
         n = len(streams(probe(p), "audio"))
         return n >= 2 and audio_md5(p, 0, 5) != audio_md5(p, n - 1, 5)

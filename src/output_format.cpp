@@ -36,9 +36,67 @@ const std::vector<OutputFormat>& table() {
     return formats;
 }
 
+// Codec choices per extension (first = default).
+void add_codec_choices(std::vector<OutputFormat>& formats) {
+    for (OutputFormat& f : formats) {
+        const std::string& e = f.extension;
+        if (e == "mp4" || e == "m4v") {
+            f.video_codecs = {"h264", "h265", "av1"};
+            f.audio_codecs = {"aac", "mp3", "opus", "flac"};
+        } else if (e == "mov") {
+            f.video_codecs = {"h264", "h265"};
+            f.audio_codecs = {"aac"};
+        } else if (e == "mkv") {
+            f.video_codecs = {"h264", "h265", "av1", "vp9", "ffv1"};
+            f.audio_codecs = {"flac", "aac", "opus", "vorbis", "mp3", "pcm"};
+        } else if (e == "webm") {
+            f.video_codecs = {"vp9", "av1"};
+            f.audio_codecs = {"opus", "vorbis"};
+        } else if (e == "mka") {
+            f.audio_codecs = {"flac", "aac", "opus", "vorbis", "mp3", "pcm"};
+        }
+    }
+}
+
 }  // namespace
 
-const std::vector<OutputFormat>& output_formats() { return table(); }
+const std::vector<Codec>& codecs() {
+    static const std::vector<Codec> list = {
+        {"h264", "H.264", {"libx264"}, true, true, false},
+        {"h265", "H.265 (HEVC)", {"libx265"}, true, true, false},
+        {"av1", "AV1", {"libsvtav1"}, true, true, false},
+        {"vp9", "VP9", {"libvpx-vp9"}, true, true, false},
+        {"ffv1", "FFV1 (lossless)", {"ffv1"}, true, false, false},
+        {"aac", "AAC", {"aac"}, false, false, true},
+        {"opus", "Opus", {"libopus"}, false, false, true},
+        {"vorbis", "Vorbis", {"libvorbis"}, false, false, true},
+        {"mp3", "MP3", {"libmp3lame"}, false, false, true},
+        {"flac", "FLAC (lossless)", {"flac"}, false, false, false},
+        {"pcm", "PCM (uncompressed)", {"pcm_s16le"}, false, false, false},
+    };
+    return list;
+}
+
+const Codec* find_codec(const std::string& name) {
+    for (const Codec& c : codecs())
+        if (c.name == name) return &c;
+    return nullptr;
+}
+
+bool codec_available(const Codec& c) {
+    for (const std::string& n : c.encoders)
+        if (avcodec_find_encoder_by_name(n.c_str())) return true;
+    return false;
+}
+
+const std::vector<OutputFormat>& output_formats() {
+    static const std::vector<OutputFormat> formats = [] {
+        std::vector<OutputFormat> f = table();
+        add_codec_choices(f);
+        return f;
+    }();
+    return formats;
+}
 
 bool output_format_available(const OutputFormat& f) {
     auto any = [](const std::vector<std::string>& names) {
@@ -54,7 +112,7 @@ std::optional<OutputFormat> output_format_for(const std::string& path) {
     if (ext.size() < 2) return std::nullopt;
     ext.erase(0, 1);
     std::ranges::transform(ext, ext.begin(), [](unsigned char c) { return std::tolower(c); });
-    for (const OutputFormat& f : table())
+    for (const OutputFormat& f : output_formats())
         if (f.extension == ext) return f;
     return std::nullopt;
 }

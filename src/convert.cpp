@@ -2,6 +2,8 @@
 #include "convert.h"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <span>
@@ -72,6 +74,7 @@ struct Pipeline {
     int64_t next_audio_pts = 0;
     int64_t last_video_pts = AV_NOPTS_VALUE;
     int64_t written = 0;  // video frames or audio samples
+    bool done = false;    // the filters ended early (past --to): ignore the rest
 
     bool is_video() const { return track < 0; }
     int send(const AVPacket* pkt) { return b2 ? b2->send_packet(pkt) : avcodec_send_packet(dec.get(), pkt); }
@@ -114,6 +117,7 @@ public:
             return fail(ErrorKind::Usage, std::format("don't know how to write '{}' (supported extensions: {})",
                                                       opts_.output, supported_extensions()));
         format_ = *fmt;
+        if (auto s = apply_codec_choices(); !s) return std::unexpected(s.error());
         if (auto s = check_quality_options(); !s) return std::unexpected(s.error());
         if (auto s = check_output_path(); !s) return std::unexpected(s.error());
         if (auto s = select_streams(); !s) return std::unexpected(s.error());
@@ -164,19 +168,60 @@ private:
         return {};
     }
 
+    // --video-codec / --audio-codec: replace the format's default encoders.
+    // Whether quality and bitrate options apply then follows the codec.
+    Status apply_codec_choices() {
+        auto pick = [&](const std::string& name, bool video) -> Status {
+            if (name.empty()) return {};
+            const Codec* c = find_codec(name);
+            if (!c || c->video != video) {
+                std::string names;
+                for (const Codec& k : codecs())
+                    if (k.video == video) names += (names.empty() ? "" : ", ") + k.name;
+                return fail(ErrorKind::Usage, std::format("unknown {} codec '{}' (choose from {})",
+                                                          video ? "video" : "audio", name, names));
+            }
+            const auto& allowed = video ? format_.video_codecs : format_.audio_codecs;
+            if (!std::ranges::contains(allowed, name)) {
+                if (allowed.empty())
+                    return fail(ErrorKind::Usage, std::format(".{} output has no {} codec choice",
+                                                              format_.extension, video ? "video" : "audio"));
+                std::string list;
+                for (const std::string& n : allowed) list += (list.empty() ? "" : ", ") + n;
+                return fail(ErrorKind::Usage, std::format(".{} output can't hold {} {} (it can hold: {})",
+                                                          format_.extension, c->label, video ? "video" : "audio", list));
+            }
+            if (!codec_available(*c))
+                return fail(ErrorKind::Unsupported,
+                            std::format("this FFmpeg build has no {} encoder (needs {})", c->label, join(c->encoders)));
+            if (video) {
+                format_.video_encoders = c->encoders;
+                format_.video_quality = c->tunable;
+            } else {
+                format_.audio_encoders = c->encoders;
+                format_.audio_bitrate = c->lossy;
+            }
+            return {};
+        };
+        if (auto s = pick(opts_.video_codec, true); !s) return s;
+        return pick(opts_.audio_codec, false);
+    }
+
     // Options that can't apply to the chosen format are usage errors.
     Status check_quality_options() {
         const std::string ext = "." + format_.extension;
         if ((opts_.crf || opts_.quality != ConvertOptions::Quality::Default ||
              opts_.speed != ConvertOptions::Speed::Normal) &&
             !format_.video_quality)
-            return fail(ErrorKind::Usage, std::format("{} output has no adjustable video quality; --quality, --crf and "
-                                                      "--speed apply to mp4, m4v, mov, mkv and webm",
-                                                      ext));
+            return fail(ErrorKind::Usage, std::format("{} output{} has no adjustable video quality; --quality, --crf and "
+                                                      "--speed apply to H.264, H.265, VP9 and AV1 video",
+                                                      ext, opts_.video_codec.empty() ? "" : " with " + opts_.video_codec));
         if (opts_.audio_bitrate_kbps > 0 && !format_.audio_bitrate)
-            return fail(ErrorKind::Usage, std::format("{} output has no lossy audio; --audio-bitrate applies to mp4, m4v, "
-                                                      "mov, webm, m4a, ogg, opus and mp3",
-                                                      ext));
+            return fail(ErrorKind::Usage, std::format("{} output{} has no lossy audio; --audio-bitrate applies to AAC, "
+                                                      "Opus, Vorbis and MP3 audio",
+                                                      ext, opts_.audio_codec.empty() ? "" : " with " + opts_.audio_codec));
+        if (opts_.from < 0 || (opts_.to && *opts_.to <= opts_.from))
+            return fail(ErrorKind::Usage, "--to must come after --from, and both must be 0 or more");
         if ((opts_.width > 0 || opts_.height > 0) && format_.video_encoders.empty())
             return fail(ErrorKind::Usage, std::format("{} output has no video; --width and --height need a video format", ext));
         return {};
@@ -226,6 +271,10 @@ private:
             total_s_ = static_cast<double>(video->duration) * av_q2d(video->time_base);
         else if (in_->duration != AV_NOPTS_VALUE)
             total_s_ = static_cast<double>(in_->duration) / AV_TIME_BASE;
+        if (total_s_ > 0 && opts_.from >= total_s_)
+            return fail(ErrorKind::Usage, std::format("--from {:.3f} is past the end ({:.3f} s)", opts_.from, total_s_));
+        if (opts_.to && total_s_ > 0) total_s_ = std::min(total_s_, *opts_.to);
+        total_s_ = std::max(0.0, total_s_ - opts_.from);
 
         const bool format_has_audio = !format_.audio_encoders.empty();
         if ((opts_.audio_track || opts_.all_audio) && !format_has_audio)
@@ -356,6 +405,8 @@ private:
         };
         static constexpr Tuning kTunings[] = {
             {"libx264", 0, 51, 18, {15, 23, 28}, "preset", {"medium", "veryfast", "slow"}},
+            // x265's CRF scale runs higher than x264's for similar quality.
+            {"libx265", 0, 51, 20, {17, 26, 31}, "preset", {"medium", "veryfast", "slow"}},
             {"libvpx-vp9", 0, 63, 30, {24, 36, 42}, "cpu-used", {"4", "6", "2"}},
             {"libsvtav1", 1, 63, 32, {24, 38, 45}, "preset", {"8", "10", "5"}},
         };
@@ -381,6 +432,13 @@ private:
                 enc->bit_rate = 0;  // constant quality
                 av_opt_set(enc->priv_data, "row-mt", "1", 0);
             }
+            if (name == "libx265") av_opt_set(enc->priv_data, "x265-params", "log-level=error", 0);
+        }
+        if (name == "ffv1") {
+            // Version 3: slices (decoded and encoded in parallel) and a CRC per slice.
+            av_opt_set_int(enc->priv_data, "level", 3, 0);
+            av_opt_set_int(enc->priv_data, "slicecrc", 1, 0);
+            enc->gop_size = 1;
         }
         return {};
     }
@@ -457,6 +515,9 @@ private:
             if (!p.out) return fail(ErrorKind::Failed, "out of memory");
             ret = avcodec_parameters_from_context(p.out->codecpar, p.enc.get());
             if (ret < 0) return av_fail("output stream setup", ret);
+            // Apple's players want H.265 in MP4/MOV tagged hvc1 (FFmpeg defaults to hev1).
+            if (p.enc->codec_id == AV_CODEC_ID_HEVC && (format_.muxer == "mp4" || format_.muxer == "mov"))
+                p.out->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
             p.out->time_base = p.enc->time_base;
             if (p.is_video()) p.out->avg_frame_rate = p.enc->framerate;
         }
@@ -472,6 +533,14 @@ private:
 
     // The filter graph converts whatever the decoder produces (pixel format,
     // sample format/rate, channel layout) into what the encoder accepts.
+    // --from/--to as the first filters of a chain, with the output starting at 0.
+    std::string trim_filter(const char* trim, const char* setpts) const {
+        if (opts_.from <= 0 && !opts_.to) return {};
+        std::string args = std::format("start={:.6f}", opts_.from);
+        if (opts_.to) args += std::format(":end={:.6f}", *opts_.to);
+        return std::format("{}={},{}=PTS-STARTPTS,", trim, args, setpts);
+    }
+
     Status build_filters(Pipeline& p, const AVFrame* f) {
         p.graph.reset(avfilter_graph_alloc());
         if (!p.graph) return fail(ErrorKind::Failed, "out of memory");
@@ -483,7 +552,7 @@ private:
             AVRational sar = f->sample_aspect_ratio.num ? f->sample_aspect_ratio : AVRational{1, 1};
             src_args = std::format("video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}", f->width,
                                    f->height, f->format, tb.num, tb.den, sar.num, sar.den);
-            chain = std::format("format=pix_fmts={}", av_get_pix_fmt_name(p.enc->pix_fmt));
+            chain = trim_filter("trim", "setpts") + std::format("format=pix_fmts={}", av_get_pix_fmt_name(p.enc->pix_fmt));
             if (f->width != p.enc->width || f->height != p.enc->height)
                 chain = std::format("scale={}:{}:flags=lanczos,setsar=1,", p.enc->width, p.enc->height) + chain;
             src_name = "buffer";
@@ -498,7 +567,8 @@ private:
                                    f->sample_rate, av_get_sample_fmt_name(static_cast<AVSampleFormat>(f->format)),
                                    layout_name(layout));
             av_channel_layout_uninit(&layout);
-            chain = std::format("aresample={},aformat=sample_fmts={}:channel_layouts={}", p.enc->sample_rate,
+            chain = trim_filter("atrim", "asetpts") +
+                    std::format("aresample={},aformat=sample_fmts={}:channel_layouts={}", p.enc->sample_rate,
                                 av_get_sample_fmt_name(p.enc->sample_fmt), layout_name(p.enc->ch_layout));
             src_name = "abuffer";
             sink_name = "abuffersink";
@@ -577,11 +647,16 @@ private:
 
     // frame == nullptr signals end of stream to the filter graph.
     Status filter(Pipeline& p, AVFrame* frame) {
+        if (p.done) return {};
         if (frame && !p.graph)
             if (auto s = build_filters(p, frame); !s) return s;
         if (!p.graph) return {};  // stream ended without a single frame
         if (frame) frame->pts = frame->best_effort_timestamp;
         int ret = av_buffersrc_add_frame_flags(p.src, frame, 0);
+        if (ret == AVERROR_EOF) {  // the trim filter has passed --to
+            p.done = true;
+            return drain_filters(p);
+        }
         if (ret < 0) return av_fail("filtering", ret);
         return drain_filters(p);
     }
@@ -625,19 +700,24 @@ private:
             }
             Pipeline* p = by_stream[in_pkt->stream_index];
             if (p) {
-                if (progress_ && in_pkt->pts != AV_NOPTS_VALUE) {
-                    double t = static_cast<double>(in_pkt->pts) * av_q2d(p->in->time_base);
-                    if (t >= last_report + 0.25) {
-                        progress_(t, total_s_);
-                        last_report = t;
-                    }
+                const double t = in_pkt->pts != AV_NOPTS_VALUE
+                                     ? static_cast<double>(in_pkt->pts) * av_q2d(p->in->time_base)
+                                     : -1;
+                // Past --to (with a margin for the decoders' delay): nothing more to write.
+                if (opts_.to && t > *opts_.to + 2.0) {
+                    av_packet_unref(in_pkt.get());
+                    break;
+                }
+                if (progress_ && t >= 0 && t >= last_report + 0.25) {
+                    progress_(std::max(0.0, t - opts_.from), total_s_);
+                    last_report = t;
                 }
                 Status s = decode(*p, in_pkt.get());
                 if (!s) return s;
             }
             av_packet_unref(in_pkt.get());
         }
-        if (ret != AVERROR_EOF) return av_fail("reading input", ret);
+        if (ret < 0 && ret != AVERROR_EOF) return av_fail("reading input", ret);
 
         for (Pipeline& p : pipes_) {
             if (auto s = decode(p, nullptr); !s) return s;
@@ -663,6 +743,33 @@ private:
 };
 
 }  // namespace
+
+void quiet_encoder_logs() {
+    if (std::getenv("SVT_LOG")) return;
+#ifdef _WIN32
+    _putenv_s("SVT_LOG", "1");
+#else
+    setenv("SVT_LOG", "1", 0);
+#endif
+}
+
+std::optional<double> parse_time(const std::string& v) {
+    double total = 0;
+    size_t start = 0;
+    int parts = 0;
+    while (true) {
+        const size_t colon = v.find(':', start);
+        const std::string part = v.substr(start, colon == std::string::npos ? std::string::npos : colon - start);
+        double x = -1;
+        auto [end, ec] = std::from_chars(part.data(), part.data() + part.size(), x);
+        if (part.empty() || ec != std::errc() || end != part.data() + part.size() || x < 0) return std::nullopt;
+        if (++parts > 3 || (colon != std::string::npos && part.find('.') != std::string::npos)) return std::nullopt;
+        total = total * 60 + x;
+        if (colon == std::string::npos) break;
+        start = colon + 1;
+    }
+    return total;
+}
 
 std::expected<ConvertStats, Error> convert_file(const ConvertOptions& opts, const ProgressFn& progress) {
     Converter c(opts, progress);
