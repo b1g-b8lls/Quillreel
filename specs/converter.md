@@ -67,6 +67,16 @@ change.
   size, `--height 120` on 320×240 gives 160×120, `--width 100` gives 100×76,
   and `--audio-bitrate 48` gives AAC at about 48 kb/s.
 
+## Cancelling
+
+Ctrl+C (SIGINT), SIGTERM or SIGHUP stops `quillreel convert` at the next packet.
+It deletes the partial output, prints "cancelled; the partial output was
+removed" and exits with 130. For a PNG sequence, the frames written so far are
+deleted. A second signal ends the process at once, without cleanup. Any
+conversion that fails part-way cleans up the same way. The GUI's Cancel uses
+the same mechanism (`ConvertOptions::cancel`).
+[verified: OblivionIntro.bik to mp4 and to a PNG sequence, interrupted after 1.5 s]
+
 ## Pipeline
 
 demux (libavformat) → decode (libavcodec) → libavfilter (`format=` for video;

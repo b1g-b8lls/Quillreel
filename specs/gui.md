@@ -72,8 +72,8 @@ another on a worker thread.
 - Progress bars for the current file and the batch, a log line per file
   (✓ converted with what was written, – skipped/cancelled with why, ✗ failed
   with the error), then a summary. Open Folder opens the output folder.
-- **Cancel** stops after the current packet. The file being written is deleted;
-  frames already written by a PNG sequence stay. Closing the dialog while it runs
+- **Cancel** stops after the current packet. The file being written is deleted,
+  and so are the frames a PNG sequence has written so far. Closing the dialog while it runs
   asks first. Settings are remembered.
 
 ## Bink 2 Video dialog

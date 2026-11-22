@@ -118,10 +118,16 @@ public:
         if (auto s = check_output_path(); !s) return std::unexpected(s.error());
         if (auto s = select_streams(); !s) return std::unexpected(s.error());
         if (auto s = open_output(); !s) return std::unexpected(s.error());
-        if (auto s = transcode(); !s) return std::unexpected(s.error());
+        if (auto s = transcode(); !s) {
+            remove_partial_sequence();
+            return std::unexpected(s.error());
+        }
 
         int ret = av_write_trailer(out_.ctx());
-        if (ret < 0) return av_fail("finishing output", ret);
+        if (ret < 0) {
+            remove_partial_sequence();
+            return av_fail("finishing output", ret);
+        }
         out_.commit();
 
         ConvertStats stats;
@@ -174,6 +180,20 @@ private:
         if ((opts_.width > 0 || opts_.height > 0) && format_.video_encoders.empty())
             return fail(ErrorKind::Usage, std::format("{} output has no video; --width and --height need a video format", ext));
         return {};
+    }
+
+    // A failed or cancelled image sequence: delete the frames written so far
+    // (single output files are deleted by Output).
+    void remove_partial_sequence() {
+        if (!format_.image_sequence) return;
+        int64_t frames = 0;
+        for (const Pipeline& p : pipes_)
+            if (p.is_video()) frames = p.written;
+        char name[4096];
+        std::error_code ec;
+        for (int64_t i = 1; i <= frames + 1; ++i)  // +1: a frame may be half written
+            if (av_get_frame_filename(name, sizeof name, opts_.output.c_str(), static_cast<int>(i)) >= 0)
+                std::filesystem::remove(name, ec);
     }
 
     Status check_output_path() {

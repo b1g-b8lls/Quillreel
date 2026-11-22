@@ -11,8 +11,10 @@ video (which needs a user-supplied DLL) is tested in test_bink2.py. Audio is tes
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 BIN, WORK = sys.argv[1], Path(sys.argv[2])
@@ -170,6 +172,32 @@ check_exit("--crf beyond H.264's range", 1, "convert", "--allow-non-bink", "--cr
 check_exit("bad --quality value", 1, "convert", "--quality", "ultra", src, WORK / "u14.mp4")
 check_exit("--quality with --crf", 1, "convert", "--quality", "small", "--crf", 20, src, WORK / "u15.mp4")
 check_exit("--no-video with --height", 1, "convert", "--no-video", "--height", 480, src, WORK / "u16.mp4")
+
+# Ctrl+C: the CLI stops and removes the partial output (exit 130).
+long_src = WORK / "long.mkv"
+ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-t", 30, "-pix_fmt", "yuv420p", "-c:v", "ffv1", long_src)
+
+
+def interrupt(output, written, *extra):
+    p = subprocess.Popen([BIN, "convert", "--allow-non-bink", *extra, long_src, output],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + 20
+    while not written() and p.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    started = written()
+    p.send_signal(signal.SIGINT)
+    _, err = p.communicate(timeout=30)
+    return started, p.returncode, err
+
+
+started, code, err = interrupt(WORK / "int.mp4", lambda: (WORK / "int.mp4").exists(), "--speed", "slow")
+check("Ctrl+C stops convert with exit 130 and removes the file",
+      started and code == 130 and "cancelled" in err and not (WORK / "int.mp4").exists(), f"{started} {code} {err}")
+int_dir = WORK / "int_png"
+int_dir.mkdir()
+started, code, err = interrupt(int_dir / "%05d.png", lambda: any(int_dir.iterdir()))
+check("Ctrl+C on a PNG sequence removes the frames written",
+      started and code == 130 and not any(int_dir.iterdir()), f"{started} {code} {err} {list(int_dir.iterdir())[:3]}")
 
 # Usage errors
 check_exit("audio track out of range", 1, "convert", "--allow-non-bink", "--audio-track", 2, src, WORK / "u1.wav")

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <signal.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <cstdio>
 #include <filesystem>
@@ -84,7 +86,8 @@ std::string usage_text() {
         "  QUILLREEL_BINK2_DLL=PATH uses that DLL instead, without installing it.\n"
         "\n"
         "Exit codes: 0 ok, 1 usage error, 2 cannot open file, 3 not a Bink file,\n"
-        "4 stream or format not supported by this FFmpeg build, 5 output error.\n"
+        "4 stream or format not supported by this FFmpeg build, 5 output error,\n"
+        "130 convert cancelled with Ctrl+C (the partial output is removed).\n"
         "inspect with several files returns the highest code.\n",
         quillreel::supported_extensions(), quillreel::bink2::installed_path());
 }
@@ -139,6 +142,25 @@ int run_inspect(const std::vector<std::string>& args) {
         }
     }
     return exit_code;
+}
+
+// Ctrl+C (and SIGTERM/SIGHUP) during convert: ask the converter to stop, which
+// deletes the partial output. A second signal ends the process at once.
+std::atomic<bool> g_cancel{false};
+static_assert(std::atomic<bool>::is_always_lock_free, "signal handler needs a lock-free flag");
+
+extern "C" void on_cancel_signal(int sig) {
+    if (g_cancel.exchange(true)) {
+        signal(sig, SIG_DFL);
+        raise(sig);
+    }
+}
+
+void catch_cancel_signals() {
+    struct sigaction sa {};
+    sa.sa_handler = on_cancel_signal;
+    sigemptyset(&sa.sa_mask);
+    for (int sig : {SIGINT, SIGTERM, SIGHUP}) sigaction(sig, &sa, nullptr);
 }
 
 std::string format_seconds(double s) {
@@ -237,8 +259,14 @@ int run_convert(const std::vector<std::string>& args) {
         };
     }
 
+    opts.cancel = &g_cancel;
+    catch_cancel_signals();
     auto result = quillreel::convert_file(opts, progress);
     if (show_progress) std::fprintf(stderr, "\r\033[K");
+    if (!result && g_cancel) {
+        std::cerr << "quillreel: cancelled; the partial output was removed\n";
+        return 130;  // 128 + SIGINT, as shells report Ctrl+C
+    }
     if (!result) {
         std::cerr << "quillreel: " << result.error().message << "\n";
         return static_cast<int>(result.error().kind);
