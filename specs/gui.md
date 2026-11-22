@@ -32,7 +32,10 @@ the list. Folders are searched recursively for `.bik`/`.bk2`.
   jump, drag to seek on release), time, an audio track menu (named from the
   inspect data, e.g. "Track 1 (48000 Hz stereo)"), mute, volume, loop and
   fullscreen.
-- **Info panel** (bottom): `quillreel inspect` text for the selected files.
+- **Info panel** (bottom): a summary of the selected files in plain words (name
+  and folder, type, length, picture, whether the video can be shown, sound
+  tracks, size; `src/gui/file_details.*`). View > Technical Details (remembered)
+  shows the `quillreel inspect` text instead.
 - **Menus**: File (Open Files, Open Folder, Convert (Ctrl+E), Clear List, Quit),
   Playback, View (Fullscreen, show/hide the list and info panel), Help (Bink 2
   Video, About). Right-clicking the list gives Play, Convert, Open Containing

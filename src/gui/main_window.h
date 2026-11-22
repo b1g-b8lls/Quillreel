@@ -15,7 +15,7 @@
 
 class QAction;
 class QLabel;
-class QPlainTextEdit;
+class QTextBrowser;
 class QSplitter;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -80,7 +80,8 @@ private:
 
     GuiOptions opts_;
     QTreeWidget* files_ = nullptr;
-    QPlainTextEdit* info_ = nullptr;
+    QTextBrowser* info_ = nullptr;
+    QAction* technical_ = nullptr;  // View > Technical Details
     PlayerWidget* player_ = nullptr;
     Updater* updater_ = nullptr;
     QSplitter* outer_ = nullptr;  // (list | player) over info

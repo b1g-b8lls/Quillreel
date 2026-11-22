@@ -17,7 +17,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
-#include <QPlainTextEdit>
+#include <QTextBrowser>
 #include <QPointer>
 #include <QSettings>
 #include <QSplitter>
@@ -31,6 +31,7 @@
 #include "bink2_dialog.h"
 #include "bink2_dll.h"
 #include "convert_dialog.h"
+#include "file_details.h"
 #include "player_widget.h"
 #include "report.h"
 #include "updater.h"
@@ -53,18 +54,6 @@ public:
         return text(c).localeAwareCompare(other.text(c)) < 0;
     }
 };
-
-QString format_length(double s) {
-    auto t = static_cast<long long>(s + 0.5);
-    return t >= 3600 ? QString::fromStdString(std::format("{}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60))
-                     : QString::fromStdString(std::format("{}:{:02}", t / 60, t % 60));
-}
-
-QString format_size(int64_t bytes) {
-    if (bytes >= (int64_t{1} << 30)) return QString::number(static_cast<double>(bytes) / (1 << 30), 'f', 2) + " GB";
-    if (bytes >= (1 << 20)) return QString::number(static_cast<double>(bytes) / (1 << 20), 'f', 1) + " MB";
-    return QString::number(static_cast<double>(bytes) / 1024, 'f', 0) + " KB";
-}
 
 bool is_bink_name(const QString& path) {
     const QString s = path.toLower();
@@ -91,9 +80,8 @@ MainWindow::MainWindow(const GuiOptions& opts, QWidget* parent) : QMainWindow(pa
 
     player_ = new PlayerWidget(this);
 
-    info_ = new QPlainTextEdit(this);
-    info_->setReadOnly(true);
-    info_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    info_ = new QTextBrowser(this);
+    info_->setOpenLinks(false);
     info_->setPlaceholderText(tr("Select a file to see its details."));
 
     top_ = new QSplitter(Qt::Horizontal, this);
@@ -207,6 +195,14 @@ void MainWindow::build_menus() {
     show_info_->setCheckable(true);
     show_info_->setChecked(true);
     connect(show_info_, &QAction::toggled, info_, &QWidget::setVisible);
+    // The `quillreel inspect` report instead of the summary.
+    technical_ = view->addAction(tr("&Technical Details"));
+    technical_->setCheckable(true);
+    technical_->setChecked(QSettings().value("view/technical_details", false).toBool());
+    connect(technical_, &QAction::toggled, this, [this](bool on) {
+        QSettings().setValue("view/technical_details", on);
+        show_selected_info();
+    });
 
     QMenu* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Bink 2 Video…"), this, &MainWindow::show_bink2_dialog);
@@ -335,22 +331,37 @@ void MainWindow::show_selected_info() {
         info_->clear();
         return;
     }
-    QString text;
+    const bool technical = technical_ && technical_->isChecked();
+    info_->setFont(technical ? QFontDatabase::systemFont(QFontDatabase::FixedFont) : QFont());
+    QString text;  // technical: plain text; otherwise HTML
     for (QTreeWidgetItem* item : sel) {
         const QString path = item->data(kName, kPathRole).toString();
         auto it = results_.find(path);
-        if (!text.isEmpty()) text += "\n";
-        if (it == results_.end()) {
-            text += path + ": " + tr("reading…") + "\n";
-        } else if (!**it) {
-            text += path + ":\n  " + QString::fromStdString((*it)->error().message) + "\n";
+        if (technical) {
+            if (!text.isEmpty()) text += "\n";
+            if (it == results_.end()) {
+                text += path + ": " + tr("reading…") + "\n";
+            } else if (!**it) {
+                text += path + ":\n  " + QString::fromStdString((*it)->error().message) + "\n";
+            } else {
+                std::ostringstream out;
+                print_text(out, ***it);
+                text += QString::fromStdString(out.str());
+            }
         } else {
-            std::ostringstream out;
-            print_text(out, ***it);
-            text += QString::fromStdString(out.str());
+            if (!text.isEmpty()) text += "<hr>";
+            if (it == results_.end())
+                text += details_reading_html(path, palette());
+            else if (!**it)
+                text += details_error_html(path, QString::fromStdString((*it)->error().message), palette());
+            else
+                text += details_html(***it, palette());
         }
     }
-    info_->setPlainText(text);
+    if (technical)
+        info_->setPlainText(text);
+    else
+        info_->setHtml(text);
 }
 
 QStringList MainWindow::track_labels(const QString& path) const {
