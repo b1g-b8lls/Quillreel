@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include "av_util.h"
+#include "bink2_dll.h"
 
 namespace quillreel {
 namespace {
@@ -42,7 +43,12 @@ VideoInfo describe_video(const AVStream* st) {
         v.keyframe_count = keys;
     }
 
-    if (const AVCodec* dec = avcodec_find_decoder(par->codec_id)) v.decoder = dec->name;
+    if (tag.starts_with("KB2")) {
+        // Bink 2 video is decoded by RAD's DLL only, if the user provided it.
+        if (bink2::dll_path()) v.decoder = "bink2w64.dll";
+    } else if (const AVCodec* dec = avcodec_find_decoder(par->codec_id)) {
+        v.decoder = dec->name;
+    }
     return v;
 }
 

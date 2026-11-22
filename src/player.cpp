@@ -7,6 +7,8 @@
 #include <format>
 #include <string_view>
 
+#include "bink2_dll.h"
+
 extern "C" {
 #include <libavutil/channel_layout.h>
 #include <libswresample/swresample.h>
@@ -71,20 +73,28 @@ std::expected<std::unique_ptr<MediaSource>, Error> MediaSource::open(const PlayO
         s.duration = static_cast<double>(in->duration) / AV_TIME_BASE;
 
     if (opts.video && video) {
-        src->vdec_ = open_decoder(video);
-        if (src->vdec_) {
+        std::string tag = fourcc_string(video->codecpar->codec_tag);
+        if (tag.starts_with("KB2")) {
+            // Bink 2 video only through RAD's own decoder, supplied by the user.
+            if (!bink2::dll_path()) {
+                s.video_note = "Bink 2 video needs bink2w64.dll (see: quillreel bink2); playing audio only";
+            } else if (auto d = bink2::Decoder::open(opts.input)) {
+                src->b2dec_ = std::move(*d);
+            } else {
+                s.video_note = d.error().message + "; playing audio only";
+            }
+        } else {
+            src->vdec_ = open_decoder(video);
+            if (!src->vdec_) s.video_note = std::format("cannot decode this video ({}); playing audio only", tag);
+        }
+        if (src->has_video_decoder()) {
             src->vst_ = video;
             s.has_video = true;
-            s.width = src->vdec_->width;
-            s.height = src->vdec_->height;
+            s.width = src->b2dec_ ? src->b2dec_->width() : src->vdec_->width;
+            s.height = src->b2dec_ ? src->b2dec_->height() : src->vdec_->height;
             AVRational sar = av_guess_sample_aspect_ratio(in, video, nullptr);
             if (sar.num > 0 && sar.den > 0) s.sample_aspect = sar;
             s.fps = av_q2d(stream_frame_rate(in, video));
-        } else {
-            std::string tag = fourcc_string(video->codecpar->codec_tag);
-            s.video_note = tag.starts_with("KB2")
-                             ? std::format("FFmpeg has no decoder for Bink 2 video ({}); playing audio only", tag)
-                             : std::format("cannot decode this video ({}); playing audio only", tag);
         }
     }
 
@@ -242,7 +252,7 @@ void MediaSource::worker() {
         if (ret == AVERROR(EAGAIN)) continue;
         if (ret < 0) {  // end of input; a read error ends playback the same way
             worker_eof_ = true;
-            if (vdec_) decode_video(nullptr);
+            if (has_video_decoder()) decode_video(nullptr);
             if (adec_) decode_audio(nullptr);
             std::lock_guard lk(mu_);
             if (!pending_) {
@@ -253,7 +263,7 @@ void MediaSource::worker() {
             continue;
         }
         const AVStream* st = in_->streams[pkt->stream_index];
-        bool video = vdec_ && pkt->stream_index == vst_->index;
+        bool video = has_video_decoder() && pkt->stream_index == vst_->index;
         bool audio = !video && adec_ && pkt->stream_index == audio_streams_[worker_track_]->index;
         if ((video || audio) && pkt->pts != AV_NOPTS_VALUE) {
             read_pts_ = std::max(read_pts_, static_cast<double>(pkt->pts + std::max<int64_t>(pkt->duration, 0)) *
@@ -277,7 +287,7 @@ void MediaSource::worker() {
 void MediaSource::do_seek(const Request& r) {
     const int64_t ts = std::llround(r.target * AV_TIME_BASE);
     int64_t keyframe = AV_NOPTS_VALUE;  // last indexed keyframe at or before the target
-    if (vdec_) {
+    if (has_video_decoder()) {
         int64_t vts = av_rescale_q(ts, AV_TIME_BASE_Q, vst_->time_base);
         int idx = av_index_search_timestamp(vst_, vts, AVSEEK_FLAG_BACKWARD);
         if (idx >= 0)
@@ -286,7 +296,7 @@ void MediaSource::do_seek(const Request& r) {
 
     const bool track_changes = sink_ && r.track != worker_track_;
     bool keep_going = !worker_eof_ && !track_changes && read_pts_ >= 0 && r.target > read_pts_ + 0.05;
-    if (keep_going && vdec_)
+    if (keep_going && has_video_decoder())
         keep_going = last_video_pkt_pts_ != AV_NOPTS_VALUE &&
                      (keyframe == AV_NOPTS_VALUE || keyframe <= last_video_pkt_pts_);
 
@@ -294,14 +304,14 @@ void MediaSource::do_seek(const Request& r) {
         // Discard output still waiting in the decoders (all before the target);
         // their state stays valid for the packets that follow.
         FramePtr tmp(av_frame_alloc());
-        if (vdec_)
-            while (tmp && avcodec_receive_frame(vdec_.get(), tmp.get()) == 0) av_frame_unref(tmp.get());
+        if (has_video_decoder())
+            while (tmp && video_receive(tmp.get()) == 0) av_frame_unref(tmp.get());
         if (adec_)
             while (tmp && avcodec_receive_frame(adec_.get(), tmp.get()) == 0) av_frame_unref(tmp.get());
         video_skip_until_ = AV_NOPTS_VALUE;
     } else {
         if (track_changes) open_audio_decoder(r.track);
-        if (vdec_) avcodec_flush_buffers(vdec_.get());
+        if (has_video_decoder()) video_flush();
         if (adec_) avcodec_flush_buffers(adec_.get());
         if (av_seek_frame(in_.get(), -1, ts, AVSEEK_FLAG_BACKWARD) < 0)
             av_seek_frame(in_.get(), -1, 0, AVSEEK_FLAG_BACKWARD);
@@ -339,9 +349,9 @@ void MediaSource::decode_video(const AVPacket* pkt) {
         if (pkt->pts != AV_NOPTS_VALUE && pkt->pts < video_skip_until_) return;
         video_skip_until_ = AV_NOPTS_VALUE;
     }
-    if (avcodec_send_packet(vdec_.get(), pkt) < 0 && pkt) return;  // damaged packet: skip it
+    if (video_send(pkt) < 0 && pkt) return;  // damaged packet: skip it
     FramePtr f(av_frame_alloc());
-    while (f && avcodec_receive_frame(vdec_.get(), f.get()) == 0) {
+    while (f && video_receive(f.get()) == 0) {
         if (f->best_effort_timestamp == AV_NOPTS_VALUE) {
             av_frame_unref(f.get());
             continue;
@@ -355,6 +365,21 @@ void MediaSource::decode_video(const AVPacket* pkt) {
         if (out && !push_video(std::move(out), pts)) return;  // interrupted by a seek or quit
         f.reset(av_frame_alloc());
     }
+}
+
+int MediaSource::video_send(const AVPacket* pkt) {
+    return b2dec_ ? b2dec_->send_packet(pkt) : avcodec_send_packet(vdec_.get(), pkt);
+}
+
+int MediaSource::video_receive(AVFrame* frame) {
+    return b2dec_ ? b2dec_->receive_frame(frame) : avcodec_receive_frame(vdec_.get(), frame);
+}
+
+void MediaSource::video_flush() {
+    if (b2dec_)
+        b2dec_->flush();
+    else
+        avcodec_flush_buffers(vdec_.get());
 }
 
 void MediaSource::decode_audio(const AVPacket* pkt) {
@@ -444,7 +469,7 @@ bool MediaSource::push_audio(const float* data, int samples, double start) {
     sink_->write(data, samples);
     audio_end_ += static_cast<double>(samples) / sink_rate_;
     // With video, the clock starts on the first frame (Bink audio comes first in the file).
-    if (!vdec_) seek_active_ = false;
+    if (!has_video_decoder()) seek_active_ = false;
     return true;
 }
 

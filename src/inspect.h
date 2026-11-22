@@ -26,7 +26,7 @@ struct VideoInfo {
     Rational frame_rate;
     int64_t frame_count = 0;
     int64_t keyframe_count = -1;  // -1 when the demuxer gave no index
-    std::string decoder;          // FFmpeg decoder name, empty if none
+    std::string decoder;          // FFmpeg decoder name, "bink2w64.dll" for Bink 2 with the DLL, empty if none
 };
 
 struct AudioTrack {

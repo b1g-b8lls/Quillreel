@@ -11,6 +11,14 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 
+# Bink 2 video depends on a user-supplied bink2w64.dll. Hide any installed copy
+# so results don't depend on the machine; QUILLREEL_BINK2_DLL, if set, is
+# handed to test_bink2.py only.
+export XDG_DATA_HOME="$tmp/xdg"
+export QUILLREEL_TEST_BINK2_DLL="${QUILLREEL_BINK2_DLL:-}"
+[[ -n "$QUILLREEL_TEST_BINK2_DLL" ]] && QUILLREEL_TEST_BINK2_DLL=$(realpath "$QUILLREEL_TEST_BINK2_DLL")
+unset QUILLREEL_BINK2_DLL
+
 expect_exit() {  # NAME WANTED_CODE CMD...
     local name=$1 want=$2; shift 2
     "$@" >/dev/null 2>&1
@@ -48,6 +56,8 @@ mkdir "$tmp/convert"
 python3 -I "$here/test_convert.py" "$bin" "$tmp/convert" "$sample_arg" || fails=$((fails + 1))
 mkdir "$tmp/play"
 python3 -I "$here/test_play.py" "$bin" "$tmp/play" "$sample_arg" || fails=$((fails + 1))
+mkdir "$tmp/bink2"
+python3 -I "$here/test_bink2.py" "$bin" "$tmp/bink2" "$sample_arg" || fails=$((fails + 1))
 
 if (( fails )); then echo "$fails test group(s) failed"; exit 1; fi
 echo "all tests passed"

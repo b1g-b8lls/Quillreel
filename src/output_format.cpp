@@ -16,6 +16,8 @@ const std::vector<OutputFormat>& table() {
         {"mov", "mov", {"libx264"}, {"aac"}, true, false},
         {"mkv", "matroska", {"libx264"}, {"flac"}, true, false},
         {"webm", "webm", {"libvpx-vp9", "libsvtav1"}, {"libopus", "libvorbis"}, true, false},
+        // Uncompressed YUV, exactly as decoded (large: about 3 MB per 1080p frame)
+        {"y4m", "yuv4mpegpipe", {"rawvideo"}, {}, false, false},
         // Image sequence
         {"png", "image2", {"png"}, {}, false, true},
         // Audio only

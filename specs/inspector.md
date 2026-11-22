@@ -45,8 +45,8 @@ ffprobe. All 23 user-supplied samples match: 14 Bink 2 (`KB2g`) and 9 Bink 1 (`B
 
 - Only revisions `BIKi` and `KB2g` have been seen. Other revisions are untested.
 - **FFmpeg has no Bink 2 video decoder.** Bink 2 video shows `codec_name=unknown`.
-  The demuxer and the Bink audio decoders still work. This blocks video for
-  `play`/`convert` on .bk2 files.
+  The demuxer and the Bink audio decoders still work. `decoder` is
+  `"bink2w64.dll"` when a user-supplied RAD DLL is available (docs/bink2.md), else `null`.
 - What do the audio track ids mean (language? channel role?). AGILITY.bk2 numbers
   them 1–5, GameIntro_V3_B.bk2 numbers them 0–5.
 - Header fields FFmpeg doesn't expose (largest frame size, header flags such as

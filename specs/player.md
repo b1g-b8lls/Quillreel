@@ -14,9 +14,10 @@ quillreel play [--audio-track N] [--start SECONDS] [--volume 0-100] [--loop] [--
 
 - One file at a time. The window opens at the video's display size, shrunk to
   fit 90% of the screen, and can be resized. The picture is letterboxed.
-- **Bink 2 files** (FFmpeg can't decode their video) open a small audio-only
-  window with the file name, the reason, the position and the controls, and a
-  note goes to stderr. A Bink 2 file without audio exits with code 4.
+- **Bink 2 files** play their video through a user-supplied bink2w64.dll
+  (docs/bink2.md). Without it they open a small audio-only window with the file
+  name, the reason, the position and the controls, and a note goes to stderr.
+  A Bink 2 file without audio then exits with code 4.
 - If no audio device can be opened, the player warns and runs silently.
 - Exit codes are the same as for the other commands; 5 = no window could be opened.
 
@@ -90,7 +91,8 @@ inside libdbus, used by SDL). ASan/UBSan builds are clean, with no leaks.
 
 - Bink 2 audio playback, track switching and seeking were checked by a person on
   real speakers. Bink 1 video playback was checked by a person on a real screen.
-- Bink 2 video can't be played (FFmpeg has no decoder).
+- Bink 2 video needs the user's bink2w64.dll. Checked headless (every frame shown in
+  real time, seeking back, late `--start`); still to be checked on a real screen.
 - Audio is about one device buffer (~10–20 ms) early relative to the picture,
   because device latency isn't accounted for.
 - 5.1/7.1 Bink audio would play in FFmpeg's default channel order. Check against

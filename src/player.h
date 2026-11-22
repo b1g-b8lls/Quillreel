@@ -24,6 +24,10 @@ struct SwrContext;
 
 namespace quillreel {
 
+namespace bink2 {
+class Decoder;
+}
+
 struct PlayOptions {
     std::string input;
     bool video = true;
@@ -109,6 +113,10 @@ private:
     bool push_audio(const float* data, int samples, double start);
     void request_locked(Request r);  // mu_ must be held
     FramePtr to_yuv420p(FramePtr frame);
+    bool has_video_decoder() const { return vdec_ || b2dec_; }
+    int video_send(const AVPacket* pkt);
+    int video_receive(AVFrame* frame);
+    void video_flush();
 
     // Fixed after open().
     InputPtr in_;
@@ -119,6 +127,7 @@ private:
 
     // Owned by the worker thread.
     CodecPtr vdec_;
+    std::unique_ptr<bink2::Decoder> b2dec_;  // Bink 2 video through RAD's DLL (instead of vdec_)
     CodecPtr adec_;
     SwsContext* sws_ = nullptr;
     SwrContext* swr_ = nullptr;

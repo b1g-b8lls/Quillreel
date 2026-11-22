@@ -15,6 +15,7 @@ extern "C" {
 #include <libavutil/log.h>
 }
 
+#include "bink2_dll.h"
 #include "convert.h"
 #include "inspect.h"
 #include "output_format.h"
@@ -31,6 +32,7 @@ std::string usage_text() {
         "  quillreel inspect [--json] [--verbose] FILE...\n"
         "  quillreel convert [options] INPUT OUTPUT\n"
         "  quillreel play [options] FILE\n"
+        "  quillreel bink2 install DLL | status [DLL] | remove\n"
         "\n"
         "inspect: print header information for Bink (.bik/.bk2) files.\n"
         "  --json             Print a JSON array, one object per file\n"
@@ -47,8 +49,7 @@ std::string usage_text() {
         "  --verbose          Show FFmpeg warnings\n"
         "  --allow-non-bink   Accept any input FFmpeg can read (for testing)\n"
         "\n"
-        "play: show a Bink file in a window with sound. Bink 2 video can't be decoded\n"
-        "by FFmpeg, so .bk2 files play their audio only.\n"
+        "play: show a Bink file in a window with sound.\n"
         "  --audio-track N    Start with audio track N (default 0)\n"
         "  --start SECONDS    Start at this position\n"
         "  --volume PERCENT   Initial volume, 0-100 (default 100)\n"
@@ -59,10 +60,18 @@ std::string usage_text() {
         "        up/down volume, m mute, a/A next/previous audio track, l loop,\n"
         "        f or double-click fullscreen, q or Esc quit\n"
         "\n"
+        "bink2: Bink 2 video (.bk2) is decoded by RAD's bink2w64.dll, which Quillreel\n"
+        "does not include. Without it, .bk2 files play and convert audio only.\n"
+        "  install DLL        Check a bink2w64.dll (64-bit, from any game that uses\n"
+        "                     Bink 2) and copy it to {}\n"
+        "  status [DLL]       Show which DLL is used and whether it loads\n"
+        "  remove             Delete the installed copy\n"
+        "  QUILLREEL_BINK2_DLL=PATH overrides the installed copy.\n"
+        "\n"
         "Exit codes: 0 ok, 1 usage error, 2 cannot open file, 3 not a Bink file,\n"
         "4 stream or format not supported by this FFmpeg build, 5 output error.\n"
         "inspect with several files returns the highest code.\n",
-        quillreel::supported_extensions());
+        quillreel::supported_extensions(), quillreel::bink2::installed_path());
 }
 
 int usage_error(std::string_view msg) {
@@ -276,6 +285,57 @@ int run_play(const std::vector<std::string>& args) {
     return quillreel::play_file(opts, ui);
 }
 
+int run_bink2(const std::vector<std::string>& args) {
+    namespace b2 = quillreel::bink2;
+    const std::string sub = args.empty() ? "" : args[0];
+    auto report = [](const b2::DllInfo& info) {
+        std::cout << "  path:    " << info.path << "\n"
+                  << "  version: " << (info.version.empty() ? "unknown" : info.version) << "\n";
+    };
+    if (sub == "install") {
+        if (args.size() != 2) return usage_error("bink2 install needs the path of a bink2w64.dll");
+        auto r = b2::install(args[1]);
+        if (!r) {
+            std::cerr << "quillreel: " << r.error().message << "\n";
+            return static_cast<int>(r.error().kind);
+        }
+        std::cout << "installed RAD's Bink 2 decoder; .bk2 video can now be played and converted\n";
+        report(*r);
+        return 0;
+    }
+    if (sub == "status") {
+        if (args.size() > 2) return usage_error("bink2 status takes at most one DLL path");
+        std::optional<std::string> path = args.size() == 2 ? std::optional(args[1]) : b2::dll_path();
+        if (!path) {
+            std::cout << "no Bink 2 decoder installed: .bk2 files play and convert audio only\n"
+                      << b2::missing_message() << "\n";
+            return 0;
+        }
+        auto r = b2::check(*path);
+        if (!r) {
+            std::cerr << "quillreel: " << r.error().message << "\n";
+            return static_cast<int>(r.error().kind);
+        }
+        std::cout << "Bink 2 decoder loads and is ready";
+        if (args.size() < 2 && std::getenv("QUILLREEL_BINK2_DLL")) std::cout << " (from QUILLREEL_BINK2_DLL)";
+        std::cout << "\n";
+        report(*r);
+        return 0;
+    }
+    if (sub == "remove") {
+        if (args.size() != 1) return usage_error("bink2 remove takes no arguments");
+        auto r = b2::uninstall();
+        if (!r) {
+            std::cerr << "quillreel: " << r.error().message << "\n";
+            return static_cast<int>(r.error().kind);
+        }
+        std::cout << (*r ? "removed " + b2::installed_path() : std::string("no installed Bink 2 decoder to remove")) << "\n";
+        return 0;
+    }
+    return usage_error(sub.empty() ? "bink2 needs a subcommand: install, status or remove"
+                                   : "unknown bink2 subcommand: " + sub);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -296,5 +356,6 @@ int main(int argc, char** argv) {
     if (cmd == "inspect") return run_inspect(args);
     if (cmd == "convert") return run_convert(args);
     if (cmd == "play") return run_play(args);
+    if (cmd == "bink2") return run_bink2(args);
     return usage_error("unknown command: " + cmd);
 }

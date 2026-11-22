@@ -30,6 +30,17 @@ into a spec either. Specs describe *what the program does*, not *how its code do
 5. Decoding is done by FFmpeg's libavcodec/libavformat, an independent
    implementation. Quillreel does not contain its own Bink decoder.
 
+## Bink 2 video: outside the clean room
+
+Decided by the project owner on 2026-11-21. Bink 2 video is decoded by RAD's own
+`bink2w64.dll`, which each user supplies from a game they own. Quillreel never
+ships, downloads or installs it. Making Quillreel load and drive that DLL meant
+running it as a black box and reading parts of its disassembly: the frame-buffer
+struct layout, the `__chkstk` stack probe and the Windows functions it imports.
+That work is documented in `docs/bink2.md`. The repository still contains no RAD
+code, headers or binaries (rule 1). The rest of the project (inspect, Bink 1,
+audio, and the RADTools-observed behaviour) keeps the roles above.
+
 ## License
 
 GPL-3.0-or-later (see `LICENSE`). The FFmpeg build that Arch Linux ships is
@@ -44,5 +55,6 @@ The points below still need to be confirmed. None of this is legal advice.
   anything it says about reverse engineering or benchmarking.
 - Interoperability reverse engineering is treated differently from country to
   country (EU Software Directive art. 6, US DMCA §1201(f), and so on).
-- Encoding *to* Bink and any Bink 2 video decoding (which FFmpeg lacks, see
-  `specs/inspector.md`) are out of scope until the legal position is clear.
+- Encoding *to* Bink is out of scope until the legal position is clear.
+- Running a user-supplied `bink2w64.dll` (see above): check RAD's runtime licence
+  terms as shipped with the game the DLL comes from.

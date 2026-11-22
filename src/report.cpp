@@ -93,7 +93,11 @@ void print_text(std::ostream& out, const FileInfo& f) {
             << v.frame_count << " frames";
         if (v.keyframe_count >= 0) out << ", " << v.keyframe_count << " keyframes";
         out << "\n";
-        out << "  Video decoder: " << (v.decoder.empty() ? "none in this FFmpeg build" : v.decoder) << "\n";
+        std::string decoder = v.decoder;
+        if (decoder.empty())
+            decoder = v.generation == "Bink 2" ? "none (needs bink2w64.dll, see: quillreel bink2)"
+                                               : "none in this FFmpeg build";
+        out << "  Video decoder: " << decoder << "\n";
     } else {
         out << "  Video:         none\n";
     }

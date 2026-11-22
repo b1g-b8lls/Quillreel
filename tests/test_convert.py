@@ -5,8 +5,8 @@
 Usage: test_convert.py QUILLREEL_BINARY WORKDIR [SAMPLE_DIR]
 
 The video pipeline is tested on a generated non-Bink clip (via --allow-non-bink),
-because FFmpeg can neither encode Bink nor decode Bink 2 video, and no Bink 1
-sample is available. Audio is tested bit-exactly against FFmpeg on real samples.
+because FFmpeg can't encode Bink, and on real Bink 1 samples when given. Bink 2
+video (which needs a user-supplied DLL) is tested in test_bink2.py. Audio is tested bit-exactly against FFmpeg on real samples.
 """
 import json
 import os

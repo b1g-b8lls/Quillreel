@@ -66,7 +66,9 @@ are counted in samples.
 
 ## Known gaps / open questions
 
-- Bink 2 video can't be converted (FFmpeg has no decoder).
+- Bink 2 video converts only with a user-supplied bink2w64.dll (docs/bink2.md);
+  without it the refusal suggests `--no-video`. Output is bit-exact with RAD's
+  decoder (checked with `.y4m`).
 - No quality options yet (CRF, bitrate, scaling, codec choice). What does RADTools offer?
 - Decoded Bink audio runs slightly longer than the video (10.960 s against 10.928 s
   on GameIntro_V3_B.bk2). FFmpeg's own decoder does the same. Should we trim to

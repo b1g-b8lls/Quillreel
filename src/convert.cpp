@@ -8,6 +8,7 @@
 #include <string_view>
 
 #include "av_util.h"
+#include "bink2_dll.h"
 #include "output_format.h"
 
 extern "C" {
@@ -62,6 +63,7 @@ struct Pipeline {
     AVStream* in = nullptr;
     int track = -1;  // audio track position, -1 for video
     CodecPtr dec;
+    std::unique_ptr<bink2::Decoder> b2;  // Bink 2 video: RAD's decoder instead of dec
     CodecPtr enc;
     GraphPtr graph;  // built from the first decoded frame
     AVFilterContext* src = nullptr;
@@ -71,7 +73,9 @@ struct Pipeline {
     int64_t last_video_pts = AV_NOPTS_VALUE;
     int64_t written = 0;  // video frames or audio samples
 
-    bool is_video() const { return dec->codec_type == AVMEDIA_TYPE_VIDEO; }
+    bool is_video() const { return track < 0; }
+    int send(const AVPacket* pkt) { return b2 ? b2->send_packet(pkt) : avcodec_send_packet(dec.get(), pkt); }
+    int receive(AVFrame* f) { return b2 ? b2->receive_frame(f) : avcodec_receive_frame(dec.get(), f); }
 };
 
 // Owns the output context; deletes a half-written output file unless commit() was called.
@@ -192,14 +196,23 @@ private:
         bool want_audio = opts_.audio && format_has_audio && !audio_streams_.empty();
 
         if (want_video) {
-            if (!avcodec_find_decoder(video->codecpar->codec_id)) {
-                std::string tag = fourcc_string(video->codecpar->codec_tag);
-                std::string what = tag.starts_with("KB2") ? "Bink 2 video" : "this video codec";
+            std::string tag = fourcc_string(video->codecpar->codec_tag);
+            if (tag.starts_with("KB2")) {
+                auto dec = bink2::Decoder::open(opts_.input);
+                if (!dec)
+                    return fail(dec.error().kind,
+                                dec.error().message + "\nUse --no-video to convert only the audio.");
+                Pipeline& p = pipes_.emplace_back();
+                p.in = video;
+                p.b2 = std::move(*dec);
+            } else if (!avcodec_find_decoder(video->codecpar->codec_id)) {
                 return fail(ErrorKind::Unsupported,
-                            std::format("FFmpeg has no decoder for {} ({}). Use --no-video to convert only the audio.",
-                                        what, tag));
+                            std::format("FFmpeg has no decoder for this video codec ({}). "
+                                        "Use --no-video to convert only the audio.",
+                                        tag));
+            } else {
+                pipes_.emplace_back().in = video;
             }
-            pipes_.emplace_back().in = video;
         }
 
         if (opts_.audio_track && audio_streams_.empty())
@@ -238,6 +251,7 @@ private:
     }
 
     Status open_decoder(Pipeline& p) {
+        if (p.b2) return {};  // opened in select_streams
         const AVCodec* codec = avcodec_find_decoder(p.in->codecpar->codec_id);
         p.dec.reset(avcodec_alloc_context3(codec));
         if (!p.dec) return fail(ErrorKind::Failed, "out of memory");
@@ -250,19 +264,20 @@ private:
     }
 
     Status open_video_encoder(Pipeline& p, const AVCodec* codec) {
-        AVCodecContext* dec = p.dec.get();
+        const AVCodecContext* dec = p.dec.get();
         AVCodecContext* enc = p.enc.get();
         AVRational fps = stream_frame_rate(in_.get(), p.in);
         if (fps.num <= 0 || fps.den <= 0) fps = {25, 1};
 
-        enc->width = dec->width;
-        enc->height = dec->height;
-        enc->sample_aspect_ratio = dec->sample_aspect_ratio;
+        enc->width = p.b2 ? p.b2->width() : dec->width;
+        enc->height = p.b2 ? p.b2->height() : dec->height;
+        enc->sample_aspect_ratio = p.b2 ? AVRational{0, 1} : dec->sample_aspect_ratio;
         enc->time_base = av_inv_q(fps);
         enc->framerate = fps;
 
-        AVPixelFormat src_fmt = dec->pix_fmt != AV_PIX_FMT_NONE ? dec->pix_fmt
-                              : static_cast<AVPixelFormat>(p.in->codecpar->format);
+        AVPixelFormat src_fmt = p.b2                              ? p.b2->pix_fmt()
+                              : dec->pix_fmt != AV_PIX_FMT_NONE ? dec->pix_fmt
+                                                                : static_cast<AVPixelFormat>(p.in->codecpar->format);
         if (src_fmt == AV_PIX_FMT_NONE) src_fmt = AV_PIX_FMT_YUV420P;
         auto fmts = supported<AVPixelFormat>(enc, codec, AV_CODEC_CONFIG_PIX_FORMAT);
         if (fmts.empty()) {
@@ -487,13 +502,13 @@ private:
 
     // packet == nullptr flushes the decoder.
     Status decode(Pipeline& p, const AVPacket* packet) {
-        int ret = avcodec_send_packet(p.dec.get(), packet);
+        int ret = p.send(packet);
         if (ret < 0 && ret != AVERROR_EOF) {
             ++decode_errors_;  // a damaged packet: skip it and keep going
             return {};
         }
         while (true) {
-            ret = avcodec_receive_frame(p.dec.get(), frame_.get());
+            ret = p.receive(frame_.get());
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) return {};
             if (ret < 0) {
                 ++decode_errors_;
