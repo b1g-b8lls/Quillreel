@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setOrganizationName("Quillreel");
     QApplication::setApplicationName("Quillreel");
-    QApplication::setApplicationVersion("0.6.0");
+    QApplication::setApplicationVersion("0.6.1");
     QApplication::setDesktopFileName("quillreel");
     av_log_set_level(AV_LOG_ERROR);
     // The installed theme icon if there is one, else the copy built into the program.

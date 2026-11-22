@@ -26,7 +26,7 @@ extern "C" {
 
 namespace {
 
-constexpr std::string_view kVersion = "0.6.0";
+constexpr std::string_view kVersion = "0.6.1";
 
 std::string usage_text() {
     return std::format(
