@@ -53,7 +53,8 @@ the list. Folders are searched recursively for `.bik`/`.bk2`.
 
 File > Convert converts the selected files, or every listed file if none are
 selected, with the same code as `quillreel convert`. They are converted one after
-another on a worker thread.
+another on a worker thread. The dialog lists them one per line ("23 files", four
+lines high, scrolling beyond; full path as a tooltip).
 
 - **Format**: every format the CLI supports, described ("MP4 (H.264 video, AAC
   audio)"). Formats whose encoder this FFmpeg build lacks are shown but disabled.

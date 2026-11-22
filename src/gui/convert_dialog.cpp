@@ -13,6 +13,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProgressBar>
@@ -29,6 +30,7 @@
 #include <format>
 
 #include "bink2_dll.h"
+#include "plural.h"
 #include "output_format.h"
 
 namespace quillreel::gui {
@@ -67,14 +69,22 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     setMinimumWidth(620);
     QSettings settings;
 
-    QStringList names;
-    for (const ConvertItem& it : items_) names << QFileInfo(it.path).fileName();
-    files_ = new QLabel(this);
-    files_->setWordWrap(true);
-    const int shown = 4;
-    QString list = names.mid(0, shown).join(", ");
-    if (names.size() > shown) list += tr(" and %n more", nullptr, static_cast<int>(names.size() - shown));
-    files_->setText(tr("%n file(s): %1", nullptr, static_cast<int>(names.size())).arg(list));
+    // One name per line (the full path as a tooltip), four lines high, scrolling beyond.
+    files_count_ = new QLabel(count_of(static_cast<qint64>(items_.size()), tr("file"), tr("files")), this);
+    files_ = new QListWidget(this);
+    files_->setSelectionMode(QAbstractItemView::NoSelection);
+    files_->setFocusPolicy(Qt::NoFocus);
+    files_->setSpacing(1);
+    for (const ConvertItem& it : items_) {
+        auto* item = new QListWidgetItem(QFileInfo(it.path).fileName(), files_);
+        item->setToolTip(QDir::toNativeSeparators(it.path));
+    }
+    const int rows = std::clamp(static_cast<int>(items_.size()), 1, 4);
+    files_->setFixedHeight(rows * (files_->sizeHintForRow(0) + 2 * files_->spacing()) + 2 * files_->frameWidth() + 2);
+    auto* files_box = new QVBoxLayout;
+    files_box->setSpacing(2);
+    files_box->addWidget(files_count_);
+    files_box->addWidget(files_);
 
     format_ = new QComboBox(this);
     auto* model = qobject_cast<QStandardItemModel*>(format_->model());
@@ -222,7 +232,7 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     cancel_button_->setEnabled(false);
 
     auto* form = new QFormLayout;
-    form->addRow(tr("Files:"), files_);
+    form->addRow(tr("Files:"), files_box);
     form->addRow(tr("Format:"), format_);
     form->addRow(tr("Save to:"), dir_row);
     form->addRow(tr("Video:"), video_);
@@ -511,12 +521,10 @@ void ConvertDialog::update_notes() {
     for (const ConvertItem& it : items_)
         if (is_bink2(it) && !bink2_video_enabled(it)) ++b2;
     if (b2 && fmt_video && video_->isChecked())
-        notes << (fmt_audio ? tr("%n Bink 2 file(s) will convert audio only: Bink 2 video is not enabled "
-                                 "(Help > Bink 2 Video).",
-                                 nullptr, b2)
-                            : tr("%n Bink 2 file(s) will be skipped: Bink 2 video is not enabled "
-                                 "(Help > Bink 2 Video).",
-                                 nullptr, b2));
+        notes << (fmt_audio ? tr("%1 will convert audio only: Bink 2 video is not enabled (Help > Bink 2 Video).")
+                                  .arg(count_of(b2, tr("Bink 2 file"), tr("Bink 2 files")))
+                            : tr("%1 will be skipped: Bink 2 video is not enabled (Help > Bink 2 Video).")
+                                  .arg(count_of(b2, tr("Bink 2 file"), tr("Bink 2 files"))));
     if (!QDir(dir_->text()).exists()) notes << tr("The folder doesn't exist yet; it will be created.");
     notes_->setText(notes.join("\n"));
     notes_->setVisible(!notes.isEmpty());
@@ -598,7 +606,7 @@ void ConvertDialog::start() {
                     if (r) {
                         ok = true;
                         QString what;
-                        if (r->video_frames >= 0) what = tr("%n frame(s)", nullptr, static_cast<int>(r->video_frames));
+                        if (r->video_frames >= 0) what = count_of(r->video_frames, tr("frame"), tr("frames"));
                         for (size_t t = 0; t < r->audio_tracks.size(); ++t) {
                             double secs = r->audio_rates[t] ? static_cast<double>(r->audio_samples[t]) / r->audio_rates[t] : 0;
                             what += (what.isEmpty() ? "" : ", ") +
@@ -606,7 +614,7 @@ void ConvertDialog::start() {
                         }
                         message = tr("✓ %1 → %2: %3").arg(j.name, QFileInfo(j.output).fileName(), what);
                         if (!j.note.isEmpty()) message += tr(" (%1)").arg(j.note);
-                        if (r->decode_errors) message += tr(", %n damaged packet(s) skipped", nullptr, static_cast<int>(r->decode_errors));
+                        if (r->decode_errors) message += tr(", %1 skipped").arg(count_of(r->decode_errors, tr("damaged packet"), tr("damaged packets")));
                     } else if (cancel_) {
                         message = tr("– %1: cancelled").arg(j.name);
                     } else {

@@ -36,6 +36,7 @@
 #include "file_details.h"
 #include "handbrake.h"
 #include "player_widget.h"
+#include "plural.h"
 #include "report.h"
 #include "updater.h"
 
@@ -258,7 +259,7 @@ void MainWindow::add_paths(const QStringList& paths) {
         scan(path);
     }
     files_->setSortingEnabled(true);
-    if (pending_) scan_label_->setText(tr("Reading %n file(s)…", nullptr, pending_));
+    if (pending_) scan_label_->setText(tr("Reading %1…").arg(count_of(pending_, tr("file"), tr("files"))));
     if (!found.isEmpty() && !files_->currentItem() && files_->topLevelItemCount())
         files_->setCurrentItem(files_->topLevelItem(0));
     if (!found.isEmpty()) {
@@ -285,7 +286,7 @@ void MainWindow::scan(const QString& path) {
 
 void MainWindow::set_result(const QString& path, const Result& r) {
     --pending_;
-    scan_label_->setText(pending_ ? tr("Reading %n file(s)…", nullptr, pending_) : QString());
+    scan_label_->setText(pending_ ? tr("Reading %1…").arg(count_of(pending_, tr("file"), tr("files"))) : QString());
     if (!items_.contains(path)) {  // the list was cleared meanwhile
         if (!pending_) emit scan_finished();
         return;
@@ -316,7 +317,7 @@ void MainWindow::set_result(const QString& path, const Result& r) {
                 item->setData(kVideo, kSortRole, static_cast<double>(f.video->width) * f.video->height);
             }
             item->setText(kAudio, f.audio.empty() ? QString("–") : QString::number(f.audio.size()));
-            item->setToolTip(kAudio, tr("%n audio track(s)", nullptr, static_cast<int>(f.audio.size())));
+            item->setToolTip(kAudio, count_of(static_cast<qint64>(f.audio.size()), tr("audio track"), tr("audio tracks")));
             item->setTextAlignment(kAudio, Qt::AlignCenter);
             item->setData(kAudio, kSortRole, static_cast<double>(f.audio.size()));
             item->setText(kSize, format_size(f.file_size));
@@ -448,7 +449,7 @@ void MainWindow::refresh_bink2() {
         it.value()->setText(1, tr("reading…"));
         scan(it.key());
     }
-    if (pending_) scan_label_->setText(tr("Reading %n file(s)…", nullptr, pending_));
+    if (pending_) scan_label_->setText(tr("Reading %1…").arg(count_of(pending_, tr("file"), tr("files"))));
     // A playing .bk2 switches between audio only and video.
     const QString cur = player_->current_path();
     if (!cur.isEmpty() && cur.endsWith(".bk2", Qt::CaseInsensitive)) {

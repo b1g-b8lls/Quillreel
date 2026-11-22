@@ -334,7 +334,8 @@ int run_convert(const std::vector<std::string>& args) {
         std::cerr << "note: the input has " << s.input_audio_tracks
                   << " audio tracks; only track 0 was converted (see --audio-track, --all-audio)\n";
     if (s.decode_errors > 0)
-        std::cerr << "warning: " << s.decode_errors << " damaged packet(s) skipped (use --verbose for details)\n";
+        std::cerr << "warning: " << s.decode_errors << (s.decode_errors == 1 ? " damaged packet" : " damaged packets")
+                  << " skipped (use --verbose for details)\n";
     return 0;
 }
 

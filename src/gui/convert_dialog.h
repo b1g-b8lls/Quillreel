@@ -20,6 +20,7 @@ class QComboBox;
 class QDialogButtonBox;
 class QGroupBox;
 class QLabel;
+class QListWidget;
 class QLineEdit;
 class QPlainTextEdit;
 class QProgressBar;
@@ -96,7 +97,8 @@ private:
     std::vector<ConvertItem> items_;
     bool allow_non_bink_ = false;
 
-    QLabel* files_ = nullptr;
+    QListWidget* files_ = nullptr;
+    QLabel* files_count_ = nullptr;
     QComboBox* format_ = nullptr;
     QLineEdit* dir_ = nullptr;
     QPushButton* browse_ = nullptr;
