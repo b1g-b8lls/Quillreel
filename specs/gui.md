@@ -60,6 +60,11 @@ another on a worker thread.
 - **Save to**: a folder, created if needed. Output names are the input name with
   the new extension, made unique within the batch ("Intro (2).mp4"). A PNG
   sequence gets a folder per file (`Intro/00001.png`, …).
+- **Lossless MKV**: a format entry of its own (MKV with FFV1 and FLAC fixed).
+- **Codecs**: video and audio codec menus with the choices the format holds
+  (specs/converter.md); hidden for formats without a choice and for Lossless MKV.
+  Codecs this FFmpeg build lacks are disabled. Remembered.
+- **Part**: "Only from … to …" (seconds or m:ss), applied to every file.
 - **Video**: include or leave out. **Audio**: first track, all tracks (formats
   that hold several), a track number, or none. **Replace existing files**: off
   by default, so existing outputs are skipped.
@@ -68,8 +73,9 @@ another on a worker thread.
   - Encoding speed: Normal, Fast or Slow.
   - Size: Original, 1080p, 720p, 480p, 360p, or a custom height.
   - Audio bitrate: the default, or 64–320 kb/s.
-  Rows the chosen format can't use are greyed out, and their values are not
-  applied. The custom CRF goes up to 51 for H.264 and 63 for WebM.
+  Rows the chosen format and codec can't use are greyed out, and their values
+  are not applied. The custom CRF goes up to 51 for H.264/H.265 and 63 for
+  VP9/AV1.
 - A plan is made per file before starting, and anything adjusted or skipped is
   noted:
   - Bink 2 without the DLL converts its audio only; for a video-only format

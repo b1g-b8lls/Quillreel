@@ -188,6 +188,21 @@ check("quality options: small, 120p, 64 kb/s",
 counts, log = convert(f"wav:{out / 'q'},quality=small,abitrate=64", clip)
 check("quality options are ignored where they don't apply", counts == (1, 0, 0), f"{counts} {log}")
 
+counts, log = convert(f"mp4:{out / 'hevc'},vcodec=h265,acodec=opus", clip)
+hs = streams(out / "hevc" / "clip.mp4") if (out / "hevc" / "clip.mp4").exists() else []
+check("codec choice: H.265 (hvc1) and Opus in MP4",
+      counts == (1, 0, 0) and [(x["codec_name"], x["codec_tag_string"]) for x in hs] == [("hevc", "hvc1"), ("opus", "Opus")],
+      f"{counts} {log} {[(x['codec_name'], x['codec_tag_string']) for x in hs]}")
+counts, log = convert(f"mkv-lossless:{out / 'lossless'},audio=all", clip)
+ls = streams(out / "lossless" / "clip.mkv") if (out / "lossless" / "clip.mkv").exists() else []
+check("Lossless MKV: FFV1 and every track as FLAC", counts == (1, 0, 0) and [x["codec_name"] for x in ls] ==
+      ["ffv1", "flac", "flac"], f"{counts} {log} {[x['codec_name'] for x in ls]}")
+counts, log = convert(f"mkv:{out / 'trim'},from=0.5,to=1.5", clip)
+ts = streams(out / "trim" / "clip.mkv") if (out / "trim" / "clip.mkv").exists() else []
+tv = [x for x in ts if x["codec_type"] == "video"]
+check("Only part: 0.5 s to 1.5 s is 24 frames", counts == (1, 0, 0) and tv and int(tv[0]["nb_read_frames"]) == 24,
+      f"{counts} {log} {tv and tv[0]['nb_read_frames']}")
+
 long_clip = WORK / "long.mkv"
 ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-t", 40, "-pix_fmt", "yuv420p", "-c:v", "ffv1", long_clip)
 counts, log = convert(f"mp4:{out}", long_clip, extra=("--test-convert-cancel-after", "0.5"))

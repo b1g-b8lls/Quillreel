@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "convert.h"
+#include "output_format.h"
 #include "inspect.h"
 
 class QCheckBox;
@@ -50,6 +51,10 @@ public:
     void set_speed(int speed);
     void set_height(int height);
     void set_audio_bitrate(int kbps);
+    // Codec names as in `quillreel convert --video-codec/--audio-codec`; empty = unchanged.
+    void set_codecs(const QString& video, const QString& audio);
+    // Only part of each file (seconds); to <= 0 means to the end.
+    void set_trim(double from, double to);
     QString log_text() const;
     void start();
     void cancel();
@@ -72,6 +77,10 @@ private:
     };
 
     std::vector<Job> plan() const;
+    // The chosen format with the codec choices applied (which options apply).
+    std::optional<OutputFormat> effective_format() const;
+    bool lossless() const;
+    void fill_codecs();  // after a format change
     void update_notes();
     void browse();
     void job_progress(int index, double done, double total);
@@ -98,6 +107,12 @@ private:
     QComboBox* size_ = nullptr;
     QSpinBox* height_ = nullptr;
     QComboBox* abitrate_ = nullptr;
+    QWidget* codec_row_ = nullptr;
+    QComboBox* vcodec_ = nullptr;
+    QComboBox* acodec_ = nullptr;
+    QCheckBox* trim_ = nullptr;
+    QLineEdit* from_ = nullptr;
+    QLineEdit* to_ = nullptr;
     QLabel* notes_ = nullptr;
     QProgressBar* file_progress_ = nullptr;
     QProgressBar* total_progress_ = nullptr;

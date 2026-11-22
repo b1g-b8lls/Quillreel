@@ -37,10 +37,21 @@ namespace {
 bool is_bink2(const ConvertItem& it) { return it.info && it.info->video && it.info->video->generation == "Bink 2"; }
 bool bink2_video_enabled(const ConvertItem& it) { return is_bink2(it) && !it.info->video->decoder.empty(); }
 
+// The format menu's "Lossless MKV" entry: MKV with FFV1 video and FLAC audio.
+constexpr char kLossless[] = "mkv-lossless";
+
 const OutputFormat* format_by_ext(const QString& ext) {
+    const QString e = ext == kLossless ? QString("mkv") : ext;
     for (const OutputFormat& f : output_formats())
-        if (QString::fromStdString(f.extension) == ext) return &f;
+        if (QString::fromStdString(f.extension) == e) return &f;
     return nullptr;
+}
+
+QString format_time(double s) {
+    const auto ms = static_cast<long long>(std::llround(s * 1000));
+    QString t = QString("%1:%2").arg(ms / 60000).arg(ms / 1000 % 60, 2, 10, QChar('0'));
+    if (ms % 1000) t += QString(".%1").arg(ms % 1000, 3, 10, QChar('0'));
+    return t;
 }
 
 QString default_dir() {
@@ -72,6 +83,14 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
         format_->addItem(QString::fromStdString(f.description) + (ok ? QString() : tr("  (not in this FFmpeg build)")),
                          QString::fromStdString(f.extension));
         if (!ok && model) model->item(format_->count() - 1)->setEnabled(false);
+        if (f.extension == "mkv") {
+            const Codec* ffv1 = find_codec("ffv1");
+            const bool lossless_ok = ok && ffv1 && codec_available(*ffv1);
+            format_->addItem(tr("Lossless MKV (FFV1 video, FLAC audio: exactly as decoded; large)") +
+                                 (lossless_ok ? QString() : tr("  (not in this FFmpeg build)")),
+                             QString(kLossless));
+            if (!lossless_ok && model) model->item(format_->count() - 1)->setEnabled(false);
+        }
     }
     set_format(settings.value("convert/format", "mp4").toString());
 
@@ -97,6 +116,38 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     audio_row->addWidget(track_);
     audio_row->addStretch();
     overwrite_ = new QCheckBox(tr("Replace existing files"), this);
+
+    // Codecs the format can hold (`--video-codec` / `--audio-codec`).
+    codec_row_ = new QWidget(this);
+    vcodec_ = new QComboBox(codec_row_);
+    vcodec_->setToolTip(tr("Video codec. H.264 plays everywhere; H.265 and AV1 make smaller files; "
+                           "FFV1 is lossless."));
+    acodec_ = new QComboBox(codec_row_);
+    acodec_->setToolTip(tr("Audio codec. FLAC and PCM are lossless; AAC, Opus, Vorbis and MP3 are smaller."));
+    auto* codec_layout = new QHBoxLayout(codec_row_);
+    codec_layout->setContentsMargins(0, 0, 0, 0);
+    codec_layout->addWidget(new QLabel(tr("Video"), codec_row_));
+    codec_layout->addWidget(vcodec_);
+    codec_layout->addSpacing(12);
+    codec_layout->addWidget(new QLabel(tr("Audio"), codec_row_));
+    codec_layout->addWidget(acodec_);
+    codec_layout->addStretch();
+
+    // Only part of each file (`--from` / `--to`).
+    trim_ = new QCheckBox(tr("Only from"), this);
+    from_ = new QLineEdit("0:00", this);
+    to_ = new QLineEdit(this);
+    to_->setPlaceholderText(tr("the end"));
+    for (QLineEdit* e : {from_, to_}) {
+        e->setMaximumWidth(110);
+        e->setToolTip(tr("Seconds (75.5) or minutes:seconds (1:15.5)"));
+    }
+    auto* trim_row = new QHBoxLayout;
+    trim_row->addWidget(trim_);
+    trim_row->addWidget(from_);
+    trim_row->addWidget(new QLabel(tr("to"), this));
+    trim_row->addWidget(to_);
+    trim_row->addStretch();
 
     // Quality, the same choices as `quillreel convert --quality/--crf/--speed/
     // --height/--audio-bitrate`.
@@ -176,6 +227,8 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     form->addRow(tr("Save to:"), dir_row);
     form->addRow(tr("Video:"), video_);
     form->addRow(tr("Audio:"), audio_row);
+    form->addRow(tr("Codecs:"), codec_row_);
+    form->addRow(tr("Part:"), trim_row);
     form->addRow(QString(), overwrite_);
     form->addRow(quality_box_);
     form->addRow(QString(), notes_);
@@ -186,7 +239,13 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     layout->addWidget(log_, 1);
     layout->addWidget(buttons_);
 
-    connect(format_, &QComboBox::currentIndexChanged, this, &ConvertDialog::update_notes);
+    connect(format_, &QComboBox::currentIndexChanged, this, [this] {
+        fill_codecs();
+        update_notes();
+    });
+    for (QComboBox* c : {vcodec_, acodec_}) connect(c, &QComboBox::currentIndexChanged, this, &ConvertDialog::update_notes);
+    connect(trim_, &QCheckBox::toggled, this, &ConvertDialog::update_notes);
+    for (QLineEdit* e : {from_, to_}) connect(e, &QLineEdit::textChanged, this, &ConvertDialog::update_notes);
     connect(video_, &QCheckBox::toggled, this, &ConvertDialog::update_notes);
     connect(audio_, &QComboBox::currentIndexChanged, this, &ConvertDialog::update_notes);
     connect(track_, &QSpinBox::valueChanged, this, &ConvertDialog::update_notes);
@@ -199,7 +258,58 @@ ConvertDialog::ConvertDialog(std::vector<ConvertItem> items, bool allow_non_bink
     connect(open_folder_, &QPushButton::clicked, this,
             [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(dir_->text())); });
     connect(buttons_, &QDialogButtonBox::rejected, this, &ConvertDialog::reject);
+    fill_codecs();
+    // The last codecs used, where the format holds them.
+    set_codecs(settings.value("convert/vcodec").toString(), settings.value("convert/acodec").toString());
     update_notes();
+}
+
+bool ConvertDialog::lossless() const { return format_->currentData().toString() == kLossless; }
+
+void ConvertDialog::fill_codecs() {
+    const OutputFormat* f = format_by_ext(format_->currentData().toString());
+    auto fill = [](QComboBox* box, const std::vector<std::string>& names) {
+        const QString keep = box->currentData().toString();
+        const QSignalBlocker block(box);
+        box->clear();
+        auto* model = qobject_cast<QStandardItemModel*>(box->model());
+        for (const std::string& n : names) {
+            const Codec* c = find_codec(n);
+            if (!c) continue;
+            const bool ok = codec_available(*c);
+            box->addItem(QString::fromStdString(c->label) + (ok ? QString() : tr(" (not in this FFmpeg build)")),
+                         QString::fromStdString(n));
+            if (!ok && model) model->item(box->count() - 1)->setEnabled(false);
+        }
+        const int i = box->findData(keep);
+        box->setCurrentIndex(i >= 0 && box->model()->flags(box->model()->index(i, 0)) & Qt::ItemIsEnabled ? i : 0);
+    };
+    fill(vcodec_, f ? f->video_codecs : std::vector<std::string>{});
+    fill(acodec_, f ? f->audio_codecs : std::vector<std::string>{});
+}
+
+std::optional<OutputFormat> ConvertDialog::effective_format() const {
+    const OutputFormat* f = format_by_ext(format_->currentData().toString());
+    if (!f) return std::nullopt;
+    OutputFormat e = *f;
+    const QString v = lossless() ? QString("ffv1") : vcodec_->currentData().toString();
+    const QString a = lossless() ? QString("flac") : acodec_->currentData().toString();
+    if (const Codec* c = v.isEmpty() ? nullptr : find_codec(v.toStdString())) e.video_quality = c->tunable;
+    if (const Codec* c = a.isEmpty() ? nullptr : find_codec(a.toStdString())) e.audio_bitrate = c->lossy;
+    return e;
+}
+
+void ConvertDialog::set_codecs(const QString& video, const QString& audio) {
+    for (auto [box, name] : {std::pair{vcodec_, video}, std::pair{acodec_, audio}}) {
+        const int i = box->findData(name);  // an empty or unknown name leaves the choice alone
+        if (!name.isEmpty() && i >= 0) box->setCurrentIndex(i);
+    }
+}
+
+void ConvertDialog::set_trim(double from, double to) {
+    trim_->setChecked(from > 0 || to > 0);
+    from_->setText(format_time(std::max(0.0, from)));
+    to_->setText(to > 0 ? format_time(to) : QString());
 }
 
 ConvertDialog::~ConvertDialog() {
@@ -247,8 +357,14 @@ void ConvertDialog::browse() {
 
 std::vector<ConvertDialog::Job> ConvertDialog::plan() const {
     std::vector<Job> jobs;
-    const OutputFormat* f = format_by_ext(format_->currentData().toString());
-    if (!f) return jobs;
+    const std::optional<OutputFormat> eff = effective_format();
+    if (!eff) return jobs;
+    const OutputFormat* f = &*eff;
+    std::optional<double> from, to;
+    if (trim_->isChecked()) {
+        from = parse_time(from_->text().trimmed().toStdString());
+        if (!to_->text().trimmed().isEmpty()) to = parse_time(to_->text().trimmed().toStdString());
+    }
     const bool fmt_video = !f->video_encoders.empty(), fmt_audio = !f->audio_encoders.empty();
     const auto mode = static_cast<AudioMode>(audio_->currentData().toInt());
     const QDir dir(dir_->text());
@@ -262,6 +378,15 @@ std::vector<ConvertDialog::Job> ConvertDialog::plan() const {
         o.input = it.path.toStdString();
         o.overwrite = overwrite_->isChecked();
         o.allow_non_bink = allow_non_bink_;
+        if (lossless()) {
+            o.video_codec = "ffv1";
+            o.audio_codec = "flac";
+        } else {
+            o.video_codec = vcodec_->currentData().toString().toStdString();
+            o.audio_codec = acodec_->currentData().toString().toStdString();
+        }
+        if (from) o.from = *from;
+        if (to) o.to = *to;
         const bool known = it.info.has_value();
         const bool has_video = !known || it.info->video.has_value();
         const int tracks = known ? static_cast<int>(it.info->audio.size()) : 1;
@@ -288,7 +413,7 @@ std::vector<ConvertDialog::Job> ConvertDialog::plan() const {
             j.note = tr("Bink 2 video is not enabled, so audio only");
         }
         o.audio = fmt_audio && mode != kNoAudio && tracks > 0;
-        if (o.audio && mode == kAllTracks && tracks > 1) {
+        if (o.audio && mode == kAllTracks && (tracks > 1 || !known)) {
             if (f->multi_audio) {
                 o.all_audio = true;
             } else if (j.note.isEmpty()) {
@@ -335,10 +460,17 @@ std::vector<ConvertDialog::Job> ConvertDialog::plan() const {
 }
 
 void ConvertDialog::update_notes() {
-    const OutputFormat* f = format_by_ext(format_->currentData().toString());
-    if (!f) return;
+    const std::optional<OutputFormat> eff = effective_format();
+    if (!eff) return;
+    const OutputFormat* f = &*eff;
     const bool fmt_video = !f->video_encoders.empty(), fmt_audio = !f->audio_encoders.empty();
     const auto mode = static_cast<AudioMode>(audio_->currentData().toInt());
+    codec_row_->setVisible(!lossless() && (vcodec_->count() > 0 || acodec_->count() > 0));
+    vcodec_->setEnabled(vcodec_->count() > 1 && !running());
+    acodec_->setEnabled(acodec_->count() > 1 && !running());
+    from_->setEnabled(trim_->isChecked() && !running());
+    to_->setEnabled(trim_->isChecked() && !running());
+    trim_->setEnabled(!running());
     video_->setEnabled(fmt_video && !running());
     audio_->setEnabled(fmt_audio && !running());
     track_->setVisible(mode == kOneTrack);
@@ -346,7 +478,8 @@ void ConvertDialog::update_notes() {
     speed_->setEnabled(f->video_quality && !running());
     crf_->setVisible(quality_->currentIndex() == 4);
     crf_->setEnabled(f->video_quality && !running());
-    crf_->setMaximum(f->extension == "webm" ? 63 : 51);  // VP9/AV1 vs H.264
+    const QString vc = vcodec_->currentData().toString();
+    crf_->setMaximum(vc == "vp9" || vc == "av1" ? 63 : 51);  // VP9/AV1 vs H.264/H.265
     size_->setEnabled(fmt_video && !running());
     height_->setVisible(size_->currentData().toInt() < 0);
     height_->setEnabled(fmt_video && !running());
@@ -356,6 +489,16 @@ void ConvertDialog::update_notes() {
     if (!fmt_video) notes << tr("This format holds audio only.");
     if (!fmt_audio) notes << tr("This format holds no audio.");
     if (f->extension == "y4m") notes << tr("Y4M is uncompressed: about 3 MB per 1080p frame.");
+    if (lossless())
+        notes << tr("Lossless keeps every pixel and sample as decoded: files are large (roughly 25 MB per second "
+                    "of 1080p). \"All tracks\" keeps every audio track.");
+    if (trim_->isChecked()) {
+        const auto a = parse_time(from_->text().trimmed().toStdString());
+        const auto b = to_->text().trimmed().isEmpty() ? std::optional<double>(1e18)
+                                                         : parse_time(to_->text().trimmed().toStdString());
+        if (!a || !b) notes << tr("Times are seconds (75.5) or minutes:seconds (1:15.5).");
+        else if (*b <= *a) notes << tr("The end time must come after the start time.");
+    }
     if (f->image_sequence) notes << tr("Each file gets its own folder of numbered PNG frames.");
     if (fmt_audio && mode == kAllTracks && !f->multi_audio)
         notes << tr("All tracks needs MP4, MOV, MKV, WebM or MKA; this format gets track 0 only.");
@@ -390,6 +533,17 @@ void ConvertDialog::start() {
         QMessageBox::warning(this, tr("Convert"), tr("Choose a folder to save to."));
         return;
     }
+    if (trim_->isChecked()) {
+        const auto a = parse_time(from_->text().trimmed().toStdString());
+        const auto b = to_->text().trimmed().isEmpty() ? std::optional<double>(1e18)
+                                                         : parse_time(to_->text().trimmed().toStdString());
+        if (!a || !b || *b <= *a) {
+            QMessageBox::warning(this, tr("Convert"),
+                                 tr("Check the part to convert: times are seconds (75.5) or minutes:seconds "
+                                    "(1:15.5), and the end must come after the start."));
+            return;
+        }
+    }
     std::vector<Job> jobs = plan();
     QSettings settings;
     settings.setValue("convert/format", format_->currentData());
@@ -403,6 +557,10 @@ void ConvertDialog::start() {
     settings.setValue("convert/size", size_->currentIndex());
     settings.setValue("convert/height", height_->value());
     settings.setValue("convert/abitrate", abitrate_->currentIndex());
+    if (!lossless()) {
+        settings.setValue("convert/vcodec", vcodec_->currentData());
+        settings.setValue("convert/acodec", acodec_->currentData());
+    }
 
     log_->clear();
     jobs_ = static_cast<int>(jobs.size());

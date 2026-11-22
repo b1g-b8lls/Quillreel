@@ -147,7 +147,8 @@ int main(int argc, char** argv) {
     const QCommandLineOption test_convert =
         hidden({"test-convert",
                 "Convert all listed files: EXT:DIR[,novideo][,audio=all|none|N][,overwrite][,quality=high|medium|small]"
-                "[,crf=N][,speed=fast|slow][,height=N][,abitrate=K]",
+                "[,crf=N][,speed=fast|slow][,height=N][,abitrate=K][,vcodec=C][,acodec=C][,from=T][,to=T]"
+                " (EXT may be mkv-lossless)",
                 "spec"});
     const QCommandLineOption test_cancel = hidden({"test-convert-cancel-after", "Cancel after SECONDS.", "seconds"});
     const QCommandLineOption test_bink2 = hidden({"test-bink2", "After reading the list: install:PATH or remove.", "action"});
@@ -204,6 +205,7 @@ int main(int argc, char** argv) {
             d->set_output_dir(parts[0].mid(colon + 1));
             d->set_video(true);
             d->set_audio(0);
+            double from = 0, to = 0;
             for (const QString& p : parts.mid(1)) {
                 if (p == "novideo") d->set_video(false);
                 if (p == "overwrite") d->set_overwrite(true);
@@ -219,7 +221,12 @@ int main(int argc, char** argv) {
                 if (p == "speed=slow") d->set_speed(2);
                 if (p.startsWith("height=")) d->set_height(p.mid(7).toInt());
                 if (p.startsWith("abitrate=")) d->set_audio_bitrate(p.mid(9).toInt());
+                if (p.startsWith("vcodec=")) d->set_codecs(p.mid(7), {});
+                if (p.startsWith("acodec=")) d->set_codecs({}, p.mid(7));
+                if (p.startsWith("from=")) from = p.mid(5).toDouble();
+                if (p.startsWith("to=")) to = p.mid(3).toDouble();
             }
+            if (from > 0 || to > 0) d->set_trim(from, to);
             QObject::connect(d, &ConvertDialog::batch_finished, &app, [&app, d](int ok, int skipped, int failed) {
                 for (const QString& line : d->log_text().split('\n')) std::printf("log: %s\n", qPrintable(line));
                 std::printf("convert: converted=%d skipped=%d failed=%d\n", ok, skipped, failed);
