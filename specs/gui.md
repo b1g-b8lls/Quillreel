@@ -97,6 +97,36 @@ installed copy.
   "Bink 2" and "Bink 2 (audio only)"), and a playing .bk2 is reopened at the same
   position, with or without video.
 
+## Updates
+
+`src/gui/updater.*`. Quillreel updates itself from its GitHub releases
+(`https://api.github.com/repos/b1g-b8lls/Quillreel/releases/latest`, which
+skips drafts and pre-releases). How depends on how it was installed:
+
+| Build | Detected by | Update |
+|-------|-------------|--------|
+| AppImage | `$APPIMAGE` is set | downloads `Quillreel-<v>-x86_64.AppImage` next to the running one (hidden `.part` file), then renames it over the real file (symlinks resolved), keeping its permissions plus the executable bits. The running copy keeps its old file. Offers to restart. |
+| Windows installer | `uninstall.exe` next to the program | downloads `Quillreel-<v>-windows-x86_64-setup.exe` to the temp folder and starts it with `/S /UPDATE` (UAC asks), then closes. The installer waits up to 30 s for `quillreel-gui.exe` to be free, installs with the components chosen at first install (kept in `HKLM\Software\Quillreel\Components`), and starts Quillreel again through Explorer so it doesn't run elevated. |
+| everything else (.deb, source build, unpacked Windows folder) | | only reports the new version, with a button to open the release page. apt owns the .deb's files. |
+
+- **Checking**: Help > Check for Updates… reports every outcome. On first start
+  (not with test options or the offscreen platform, where it would block) Quillreel
+  asks once whether to check automatically; Help > Check for Updates
+  Automatically changes it. Automatic checks run 2 s after start, at most every
+  20 hours, and stay silent unless there is a newer version that wasn't skipped
+  ("Skip This Version"). Settings: `updates/automatic`, `updates/last_check`,
+  `updates/skip`.
+- **Verification**: a file is only offered if its download URL starts with
+  `https://github.com/b1g-b8lls/Quillreel/releases/download/` and the API gives
+  its SHA-256 (`digest`). The download must have exactly that size and hash, or it
+  is deleted and nothing changes. This catches corrupt and tampered downloads,
+  not a compromised GitHub account (releases are not signed).
+- **Release names**: the updater finds files by name, so releases must keep the
+  tag `vX.Y.Z` and the asset names above.
+- The request sends `User-Agent: Quillreel/<version>` and nothing else about the
+  user. HTTPS uses Qt's TLS plugins: OpenSSL in the AppImage and the distro
+  packages, Schannel on Windows.
+
 ## Keys
 
 The same as `quillreel play` (specs/player.md), as menu shortcuts that work
@@ -132,14 +162,20 @@ volume 0) using hidden options: `--test-play FILE`, `--test-keys
 `--test-quit-after S`, `--test-dump-list`, `--report`, `--test-silent`,
 `--test-screenshot S:PATH`, `--test-convert EXT:DIR[,options]`,
 `--test-convert-cancel-after S`, `--test-bink2 install:PATH|remove`,
-`--test-dialog convert|bink2` and `--allow-non-bink`. It covers:
+`--test-dialog convert|bink2`, `--test-update check|install` (with
+`QUILLREEL_UPDATE_API` pointing at a local fake API; downloads must then come
+from that server) and `--allow-non-bink`. It covers:
 - real-time playback, pause, seeking back, track switching and looping;
 - the file list (real samples and a broken file);
 - Bink 1 playback, and Bink 2 with and without the DLL;
 - conversions through the dialog: formats, track choice, skipping and
   replacing existing files, missing tracks, cancelling, and Bink 2 with and
   without the DLL;
-- installing and removing the DLL, with the list refreshing.
+- installing and removing the DLL, with the list refreshing;
+- updates: finding a newer release, not offering a download that is from
+  elsewhere, lacks a checksum or doesn't fit this build, rejecting bad tags and
+  a missing release, replacing the AppImage, and refusing a download whose
+  checksum doesn't match.
 Offscreen Qt has no OpenGL, so the picture itself is checked only by hand or with
 `--test-screenshot` on a real display.
 

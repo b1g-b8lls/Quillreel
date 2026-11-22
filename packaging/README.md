@@ -49,6 +49,14 @@ theme plugins. `MAINTAINER="Name <email>"` sets the package's Maintainer field
 - Without FUSE, run it with `--appimage-extract-and-run` or set
   `APPIMAGE_EXTRACT_AND_RUN=1`.
 
+## Releases and the updater
+
+Quillreel finds updates through GitHub's latest-release API and picks files by
+name, so a release must be tagged `vX.Y.Z` and keep these asset names exactly:
+`Quillreel-<v>-x86_64.AppImage` and `Quillreel-<v>-windows-x86_64-setup.exe`.
+GitHub computes the SHA-256 the updater checks; nothing extra is needed. Mark
+test builds as pre-releases: the API skips them.
+
 ## Windows installer
 
 - Built by `packaging/Containerfile.windows` and `packaging/build-windows.sh`:
@@ -72,6 +80,10 @@ theme plugins. `MAINTAINER="Name <email>"` sets the package's Maintainer field
   Start menu shortcut (on), desktop shortcut (off), .bik/.bk2 file association
   (on; Quillreel is added to "Open with" and becomes the default only if no other
   program is). Uninstalling leaves the user's `bink2w64.dll` and settings.
+- `/S /UPDATE` is how Quillreel's updater runs the installer: silent, with the
+  components recorded at first install (`HKLM\Software\Quillreel\Components`),
+  waiting for Quillreel to close and starting it again afterwards through
+  Explorer (not elevated). See specs/gui.md, "Updates".
 - `make package-windows WINDOWS_STAGE=1` stops before the installer and leaves
   the programs with their DLLs in `dist/Quillreel-<v>-windows`, e.g. to run the
   tests under Wine.

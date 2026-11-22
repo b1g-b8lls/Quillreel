@@ -33,6 +33,7 @@
 #include "convert_dialog.h"
 #include "player_widget.h"
 #include "report.h"
+#include "updater.h"
 
 namespace quillreel::gui {
 namespace {
@@ -112,6 +113,7 @@ MainWindow::MainWindow(const GuiOptions& opts, QWidget* parent) : QMainWindow(pa
     scan_label_ = new QLabel(this);
     statusBar()->addPermanentWidget(scan_label_);
 
+    updater_ = new Updater(this);
     build_menus();
 
     connect(files_, &QTreeWidget::itemSelectionChanged, this, &MainWindow::show_selected_info);
@@ -195,6 +197,17 @@ void MainWindow::build_menus() {
 
     QMenu* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Bink 2 Video…"), this, &MainWindow::show_bink2_dialog);
+    help->addSeparator();
+    help->addAction(tr("Check for &Updates…"), updater_, &Updater::check_now);
+    QAction* automatic = help->addAction(tr("Check for Updates Au&tomatically"));
+    automatic->setCheckable(true);
+    automatic->setChecked(updater_->automatic());
+    connect(automatic, &QAction::toggled, updater_, &Updater::set_automatic);
+    connect(updater_, &Updater::automatic_changed, automatic, [automatic](bool on) {
+        const QSignalBlocker block(automatic);
+        automatic->setChecked(on);
+    });
+    help->addSeparator();
     help->addAction(tr("&About Quillreel"), this, &MainWindow::show_about);
 }
 

@@ -4,7 +4,7 @@ BUILD      ?= build
 PREFIX     ?= /usr/local
 
 FFMPEG_PKGS = libavformat libavcodec libavfilter libavutil libswscale libswresample
-QT_PKGS     = Qt6Widgets Qt6Multimedia Qt6OpenGLWidgets Qt6OpenGL
+QT_PKGS     = Qt6Widgets Qt6Multimedia Qt6OpenGLWidgets Qt6OpenGL Qt6Network
 
 # The GUI is built when Qt 6 is installed; the CLI never needs it.
 HAVE_QT := $(shell $(PKG_CONFIG) --exists $(QT_PKGS) && echo yes)
@@ -54,7 +54,7 @@ ifeq ($(WINDOWS),yes)
   # Icon, manifest (UTF-8 code page) and version information.
   CLI_OBJ += $(BUILD)/quillreel_res.o
   GUI_OBJ += $(BUILD)/quillreel-gui_res.o
-  GUI_LDFLAGS = -mwindows  # no console window
+  GUI_LDFLAGS = -mwindows -lshell32  # no console window; ShellExecute (updater)
 endif
 
 all: $(BIN) $(if $(HAVE_QT),$(GUI_BIN))

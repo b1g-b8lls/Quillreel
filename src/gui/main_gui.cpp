@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // quillreel-gui: the Qt front end. Spec: specs/gui.md
+#include <algorithm>
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDialog>
@@ -26,6 +27,7 @@ extern "C" {
 #include "convert_dialog.h"
 #include "main_window.h"
 #include "player_widget.h"
+#include "updater.h"
 
 namespace {
 
@@ -143,8 +145,13 @@ int main(int argc, char** argv) {
     const QCommandLineOption test_cancel = hidden({"test-convert-cancel-after", "Cancel after SECONDS.", "seconds"});
     const QCommandLineOption test_bink2 = hidden({"test-bink2", "After reading the list: install:PATH or remove.", "action"});
     const QCommandLineOption test_dialog = hidden({"test-dialog", "Open a dialog: convert or bink2.", "name"});
-    parser.addOptions({allow_non_bink, test_play, test_quit, test_keys, test_list, report, test_silent, test_shot,
-                       test_convert, test_cancel, test_bink2, test_dialog});
+    const QCommandLineOption test_update =
+        hidden({"test-update", "Check for an update (check), or also install it (install), then quit.", "action"});
+    const QList<QCommandLineOption> test_options = {allow_non_bink, test_play,  test_quit,    test_keys,
+                                                    test_list,      report,     test_silent,  test_shot,
+                                                    test_convert,   test_cancel, test_bink2,  test_dialog,
+                                                    test_update};
+    parser.addOptions(test_options);
     parser.process(app);
 
     quillreel::gui::GuiOptions opts;
@@ -265,6 +272,13 @@ int main(int argc, char** argv) {
                 if (w != &window && w->isVisible() && qobject_cast<QDialog*>(w)) target = w;
             if (!target->grab().save(path)) std::fprintf(stderr, "cannot save %s\n", qPrintable(path));
         });
+    }
+    if (parser.isSet(test_update)) {
+        window.updater()->run_test(parser.value(test_update) == "install", [&app](int rc) { app.exit(rc); });
+    } else if (QGuiApplication::platformName() != "offscreen" &&
+               std::ranges::none_of(test_options, [&](const QCommandLineOption& o) { return parser.isSet(o); })) {
+        // Not in tests or headless runs: the first-start question would block them.
+        window.updater()->start_automatic();
     }
     if (parser.isSet(test_quit))
         QTimer::singleShot(static_cast<int>(parser.value(test_quit).toDouble() * 1000), &window, &QWidget::close);

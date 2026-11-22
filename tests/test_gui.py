@@ -10,11 +10,14 @@ Offscreen Qt has no OpenGL, so the picture itself is not checked here (the
 colour conversion was checked on a real display against FFmpeg; see specs/gui.md).
 Playback runs in real time; this takes about 40 s.
 """
+import hashlib
+import http.server
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -221,5 +224,85 @@ if SAMPLES:
             check("removing it disables Bink 2 video again",
                   "bink2: removed" in r.stdout and "audio only" in row and not (xdg / "quillreel" / "bink2w64.dll").exists(),
                   r.stdout + r.stderr)
+
+# Updates (--test-update), against a fake GitHub API on 127.0.0.1
+# (QUILLREEL_UPDATE_API). APPIMAGE makes the GUI act as an AppImage.
+NEW_APPIMAGE = b"#!/bin/sh\necho new version\n" * 1000
+server_state = {"tag": "v99.0.0", "digest": "sha256:" + hashlib.sha256(NEW_APPIMAGE).hexdigest(), "host": None,
+                "status": 200}
+
+
+class FakeGitHub(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        port = self.server.server_address[1]
+        if self.path == "/api":
+            if server_state["status"] != 200:
+                self.send_error(server_state["status"])
+                return
+            version = server_state["tag"].lstrip("v")
+            host = server_state["host"] or f"http://127.0.0.1:{port}"
+            body = json.dumps({
+                "tag_name": server_state["tag"], "html_url": f"http://127.0.0.1:{port}/release", "body": "notes",
+                "assets": [{"name": f"Quillreel-{version}-x86_64.AppImage", "size": len(NEW_APPIMAGE),
+                            "digest": server_state["digest"],
+                            "browser_download_url": f"{host}/dl/Quillreel-{version}-x86_64.AppImage"}],
+            }).encode()
+        elif self.path.startswith("/dl/"):
+            body = NEW_APPIMAGE
+        else:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeGitHub)
+threading.Thread(target=httpd.serve_forever, daemon=True).start()
+UPD_ENV = {**ENV, "QUILLREEL_UPDATE_API": f"http://127.0.0.1:{httpd.server_address[1]}/api"}
+UPD_ENV.pop("APPIMAGE", None)
+appimage = WORK / "update" / "Quillreel.AppImage"
+appimage.parent.mkdir()
+
+
+def update(action, as_appimage=True, **state):
+    server_state.update({"tag": "v99.0.0", "digest": "sha256:" + hashlib.sha256(NEW_APPIMAGE).hexdigest(),
+                         "host": None, "status": 200}, **state)
+    appimage.write_bytes(b"old")
+    appimage.chmod(0o750)
+    env = {**UPD_ENV, "APPIMAGE": str(appimage)} if as_appimage else UPD_ENV
+    r = subprocess.run([BIN, "--test-update", action], capture_output=True, text=True, env=env, timeout=60)
+    leftovers = [f.name for f in appimage.parent.iterdir() if f.name != appimage.name]
+    return r, r.stdout + r.stderr, leftovers
+
+
+r, out, _ = update("check", as_appimage=False)
+check("update check finds a newer release", r.returncode == 0 and "latest=99.0.0" in out and "newer=1" in out, out)
+check("a build that can't update itself is offered no download", "asset=\n" in r.stdout, out)
+r, out, _ = update("check")
+check("an AppImage is offered the new AppImage", "asset=Quillreel-99.0.0-x86_64.AppImage" in out, out)
+r, out, _ = update("check", tag="v0.6.1")
+check("the current version is not newer", "newer=0" in out, out)
+r, out, _ = update("check", status=404)
+check("no release on GitHub is reported", r.returncode == 1 and "no Quillreel release" in out, out)
+r, out, _ = update("check", tag="nightly")
+check("a tag without a version is rejected", r.returncode == 1 and "no version number" in out, out)
+r, out, _ = update("check", host="http://127.0.0.2:9")
+check("a download from elsewhere is not offered", "asset=\n" in r.stdout, out)
+r, out, _ = update("check", digest="")
+check("a download without GitHub's checksum is not offered", "asset=\n" in r.stdout, out)
+
+r, out, left = update("install")
+check("the update replaces the AppImage",
+      r.returncode == 0 and "update: installed" in out and appimage.read_bytes() == NEW_APPIMAGE
+      and appimage.stat().st_mode & 0o777 == 0o751 and not left, f"{out} {oct(appimage.stat().st_mode)} {left}")
+r, out, left = update("install", digest="sha256:" + "00" * 32)
+check("a download that doesn't match the checksum is not installed",
+      r.returncode == 1 and "doesn't match" in out and appimage.read_bytes() == b"old" and not left, f"{out} {left}")
+httpd.shutdown()
 
 sys.exit(1 if failures else 0)

@@ -24,6 +24,7 @@ namespace quillreel::gui {
 
 class ConvertDialog;
 class PlayerWidget;
+class Updater;
 
 struct GuiOptions {
     bool allow_non_bink = false;  // testing: accept any FFmpeg-readable input
@@ -39,6 +40,7 @@ public:
     void add_paths(const QStringList& paths);
     bool play(const QString& path);
     PlayerWidget* player() const { return player_; }
+    Updater* updater() const { return updater_; }
     QTreeWidget* file_list() const { return files_; }
     int pending_scans() const { return pending_; }
     // Triggers the menu action whose shortcut matches (for tests).
@@ -80,6 +82,7 @@ private:
     QTreeWidget* files_ = nullptr;
     QPlainTextEdit* info_ = nullptr;
     PlayerWidget* player_ = nullptr;
+    Updater* updater_ = nullptr;
     QSplitter* outer_ = nullptr;  // (list | player) over info
     QSplitter* top_ = nullptr;    // list | player
     QLabel* scan_label_ = nullptr;

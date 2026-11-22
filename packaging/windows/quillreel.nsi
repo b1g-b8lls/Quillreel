@@ -2,11 +2,16 @@
 ; Quillreel's Windows installer. Built by packaging/build-windows.sh, which
 ; defines VERSION, SIZE_KB, OUTFILE, SRC (the source tree) and FILES_DIR (holding
 ; files-install.nsh / files-uninstall.nsh, the exact file list).
+;
+; Quillreel's updater runs it as "setup.exe /S /UPDATE": silently, keeping the
+; components chosen when it was first installed, waiting for Quillreel to close,
+; and starting it again afterwards (src/gui/updater.cpp).
 
 Unicode true
 !include "MUI2.nsh"
 !include "x64.nsh"
 !include "FileFunc.nsh"
+!include "Sections.nsh"
 
 !define APP "Quillreel"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}"
@@ -48,17 +53,46 @@ VIAddVersionKey "LegalCopyright" "GPL-3.0-or-later"
 
 !insertmacro MUI_LANGUAGE "English"
 
-Function .onInit
-    ${IfNot} ${RunningX64}
-        MessageBox MB_ICONSTOP "Quillreel needs 64-bit Windows."
-        Abort
+Var Update  ; 1 when run by Quillreel's updater
+
+!macro RestoreChoice NAME SECTION
+    ReadRegDWORD $0 HKLM "Software\${APP}\Components" "${NAME}"
+    ${If} $0 == 1
+        !insertmacro SelectSection ${SECTION}
+    ${Else}
+        !insertmacro UnselectSection ${SECTION}
     ${EndIf}
-    SetRegView 64
-    SetShellVarContext all  ; Start menu and desktop shortcuts for all users
-FunctionEnd
+!macroend
+
+!macro RememberChoice NAME SECTION
+    ${If} ${SectionIsSelected} ${SECTION}
+        WriteRegDWORD HKLM "Software\${APP}\Components" "${NAME}" 1
+    ${Else}
+        WriteRegDWORD HKLM "Software\${APP}\Components" "${NAME}" 0
+    ${EndIf}
+!macroend
+
 
 Section "Quillreel" SecCore
     SectionIn RO
+    ; The updater closes Quillreel right after starting this; wait (up to 30 s)
+    ; until its program file can be written again.
+    ${If} $Update == 1
+        StrCpy $1 0
+        ${Do}
+            ClearErrors
+            FileOpen $0 "$INSTDIR\quillreel-gui.exe" a
+            ${IfNot} ${Errors}
+                FileClose $0
+                ${Break}
+            ${EndIf}
+            ${IfNot} ${FileExists} "$INSTDIR\quillreel-gui.exe"
+                ${Break}
+            ${EndIf}
+            Sleep 500
+            IntOp $1 $1 + 1
+        ${LoopUntil} $1 >= 60
+    ${EndIf}
     ; An earlier version's uninstaller removes exactly the files it installed,
     ; so files a new version no longer has don't stay behind.
     ReadRegStr $0 HKLM "${UNINST_KEY}" "InstallLocation"
@@ -113,6 +147,40 @@ Section "Open .bik and .bk2 files with Quillreel" SecAssoc
     !insertmacro Associate ".bk2"
     System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'  ; SHCNE_ASSOCCHANGED
 SectionEnd
+
+Section "-Finish"
+    !insertmacro RememberChoice "StartMenu" ${SecStartMenu}
+    !insertmacro RememberChoice "Desktop" ${SecDesktop}
+    !insertmacro RememberChoice "Associate" ${SecAssoc}
+    ; Start the updated Quillreel through Explorer, so it runs as the user and
+    ; not with this installer's administrator rights.
+    ${If} $Update == 1
+        Exec '"$WINDIR\explorer.exe" "$INSTDIR\quillreel-gui.exe"'
+    ${EndIf}
+SectionEnd
+
+; After the sections: it selects them by their ids.
+Function .onInit
+    ${IfNot} ${RunningX64}
+        MessageBox MB_ICONSTOP "Quillreel needs 64-bit Windows."
+        Abort
+    ${EndIf}
+    SetRegView 64
+    SetShellVarContext all  ; Start menu and desktop shortcuts for all users
+    StrCpy $Update 0
+    ClearErrors
+    ${GetOptions} $CMDLINE "/UPDATE" $0
+    ${IfNot} ${Errors}
+        StrCpy $Update 1
+        ; Versions before the updater didn't record the choices: keep the defaults then.
+        ReadRegDWORD $0 HKLM "Software\${APP}\Components" "StartMenu"
+        ${IfNot} ${Errors}
+            !insertmacro RestoreChoice "StartMenu" ${SecStartMenu}
+            !insertmacro RestoreChoice "Desktop" ${SecDesktop}
+            !insertmacro RestoreChoice "Associate" ${SecAssoc}
+        ${EndIf}
+    ${EndIf}
+FunctionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} "The Quillreel application (quillreel-gui.exe) and command-line tool (quillreel.exe)."

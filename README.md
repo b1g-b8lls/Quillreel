@@ -51,6 +51,12 @@ you can also build them with `make package` (see packaging/README.md).
   `quillreel.exe` in the install folder (`C:\Program Files\Quillreel`). The
   Bink 2 DLL you install is kept in `%LOCALAPPDATA%\Quillreel`.
 
+The AppImage and the Windows version update themselves from new releases (Help >
+Check for Updates; on first start Quillreel asks whether to check automatically,
+at most once a day). Downloads are checked against the SHA-256 checksums GitHub
+publishes. The `.deb` packages only say a new version exists; update them like
+any other package.
+
 The GUI follows the desktop's look: Plasma's theme on KDE, the GTK theme on
 GNOME and other GTK desktops, and dark mode. None of the packages include Bink 2
 video support; add RAD's `bink2w64.dll` yourself (see above).
@@ -59,7 +65,7 @@ video support; add RAD's `bink2w64.dll` yourself (see above).
 
 Needs g++ with C++23, make, pkg-config, SDL3 and the FFmpeg development libraries
 (libavformat, libavcodec, libavfilter, libavutil, libswscale, libswresample).
-The GUI also needs Qt 6 (Widgets, Multimedia, OpenGL Widgets); without it, `make`
+The GUI also needs Qt 6 (Widgets, Multimedia, OpenGL Widgets, Network); without it, `make`
 builds the CLI only. On Arch: `pacman -S ffmpeg sdl3 qt6-base qt6-multimedia`.
 
 ```sh
