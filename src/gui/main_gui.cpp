@@ -3,9 +3,13 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDialog>
+#include <QFile>
 #include <QIcon>
 #include <QPalette>
+#include <QStyle>
+#include <QStyleFactory>
 #include <QStyleHints>
+#include <QStandardPaths>
 #include <QKeySequence>
 #include <QTimer>
 #include <QTreeWidget>
@@ -67,6 +71,32 @@ void follow_color_scheme(QApplication& app) {
     app.setPalette(p);
 }
 
+// The desktop switched colour scheme (e.g. Breeze to Breeze Dark) while running.
+// Breeze reads the header colours it paints the menu bar with when the style is
+// created, and a running plain-Qt app never sees them change, so the menu bar
+// kept the old scheme's colour. A new style instance reads them again. Breeze
+// takes them from KDE_COLOR_SCHEME_PATH if set; it is pointed at kdeglobals only
+// while the style is made, spelled two ways in turn because KDE caches a config
+// by name and the old style still holds the previous one. Deferred so the
+// platform theme has updated the palette first; then re-check the dark palette.
+void theme_changed(QApplication& app) {
+    QTimer::singleShot(0, &app, [&app] {
+        const QString name = app.style()->name();
+        const QString globals =
+            QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/kdeglobals";
+        static bool alt = false;
+        const bool breeze = name.compare("breeze", Qt::CaseInsensitive) == 0 && QFile::exists(globals);
+        if (breeze) {
+            alt = !alt;
+            app.setProperty("KDE_COLOR_SCHEME_PATH", alt ? QString(globals).replace("/kdeglobals", "//kdeglobals")
+                                                         : globals);
+        }
+        if (QStyle* style = QStyleFactory::create(name)) app.setStyle(style);
+        if (breeze) app.setProperty("KDE_COLOR_SCHEME_PATH", QVariant());
+        follow_color_scheme(app);
+    });
+}
+
 }  // namespace
 
 using quillreel::gui::ConvertDialog;
@@ -85,7 +115,7 @@ int main(int argc, char** argv) {
     QApplication::setWindowIcon(QIcon::fromTheme("quillreel", builtin));
     follow_color_scheme(app);
     QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, &app,
-                     [&app] { follow_color_scheme(app); });
+                     [&app] { theme_changed(app); });
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Inspect and play Bink video files (.bik, .bk2).");

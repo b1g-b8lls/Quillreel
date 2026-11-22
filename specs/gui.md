@@ -37,6 +37,12 @@ the list. Folders are searched recursively for `.bik`/`.bk2`.
   Playback, View (Fullscreen, show/hide the list and info panel), Help (Bink 2
   Video, About). Right-clicking the list gives Play, Convert, Open Containing
   Folder and Remove from List.
+- **Look**: the desktop's Qt theme (Plasma/Breeze on KDE, GTK3 on GNOME and
+  other GTK desktops). If the desktop asks for dark but the theme only has light
+  colours, a dark palette is used. A colour scheme change while running is
+  followed, including Breeze's menu bar colour, which plain Qt apps otherwise
+  keep from startup (the style is re-created on the change).
+  [checked: Breeze ↔ Breeze Dark switched live, colour scheme and global theme]
 - Window size and splitter positions are remembered (QSettings,
   `~/.config/Quillreel/Quillreel.conf`), and so is the last folder opened.
 
